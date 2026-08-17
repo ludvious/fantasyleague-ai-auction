@@ -36,10 +36,38 @@ def _validate_config(config: dict[str, Any]) -> None:
     paths = config.get("paths", {})
     if not isinstance(simulation, dict):
         raise ValueError("'simulation' must be a mapping")
-    if simulation.get("seed") is None:
+    seed = simulation.get("seed")
+    if seed is None:
         raise ValueError("'simulation.seed' is required")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("'simulation.seed' must be an int")
+    budget = simulation.get("budget")
+    if budget is not None and (
+        isinstance(budget, bool) or not isinstance(budget, int) or budget < 25
+    ):
+        raise ValueError("'simulation.budget' must be an int >= 25")
     if not isinstance(paths, dict) or not paths.get("players"):
         raise ValueError("'paths.players' is required")
+    buyers = config.get("buyers")
+    if not isinstance(buyers, list) or not buyers:
+        raise ValueError("'buyers' must be a non-empty list")
+    for index, buyer in enumerate(buyers):
+        if not isinstance(buyer, dict):
+            raise ValueError(f"'buyers[{index}]' must be a mapping")
+        if not str(buyer.get("id", "")).strip():
+            raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
+        if not str(buyer.get("name", "")).strip():
+            raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
+        strategy = str(buyer.get("strategy", "deterministic")).lower()
+        if strategy not in ("deterministic", "random"):
+            raise ValueError(
+                f"'buyers[{index}].strategy' must be 'deterministic' or 'random'"
+            )
+        priority = buyer.get("priority")
+        if priority is not None and (
+            isinstance(priority, bool) or not isinstance(priority, int)
+        ):
+            raise ValueError(f"'buyers[{index}].priority' must be an int")
 
 
 def _as_file_path(value: str | Path | None, default: Path, filename: str) -> Path:

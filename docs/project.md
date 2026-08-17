@@ -8,7 +8,7 @@ adapters.
 
 ## Current status
 
-The deterministic auction MVP is implemented and P1 is complete:
+The deterministic auction MVP is implemented and P1 and P2 are complete:
 
 - strict bid validation is centralized in `Squad`;
 - invalid bidder output and bidder exceptions are isolated and recorded as
@@ -20,7 +20,7 @@ The deterministic auction MVP is implemented and P1 is complete:
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **83 tests passed**;
+- `venv/bin/pytest -q -W error`: **103 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
@@ -196,7 +196,7 @@ venv/bin/pytest -q -W error
 The test suite covers roster invariants, strict bid validation, invalid and
 raising bidders, tie and no-bid outcomes, deterministic and random bidder
 behavior, canonical players, Excel schema handling, JSON persistence, pool
-exhaustion, and CLI success/failure paths.
+exhaustion, configuration contract validation, and CLI success/failure paths.
 
 
 ## TODO / debito tecnico
@@ -204,4 +204,4 @@ exhaustion, and CLI success/failure paths.
 1. **Configurazione LLM per agenti AI.** Reintrodurre le sezioni `llm` e
    `buyers[].personality` con design dedicato quando la roadmap approverà gli
    agenti AI; i campi storici sono registrati in `docs/roadmap.md` e nella
-   storia git (il vecchio `config.yaml` è stato rimosso col TODO 2).
+   storia git.

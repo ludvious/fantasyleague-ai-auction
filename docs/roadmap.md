@@ -21,18 +21,19 @@ while preserving the complete partial-auction report.
   round; exact random-generator continuation is not part of the MVP;
 - add serialization, loading, resume-flow, and compatibility tests.
 
-### P2 — CLI and legacy compatibility
+### P2 — CLI and legacy compatibility (complete)
 
 - stabilize the CLI contract, configuration, options, and error messages;
 - preserve required legacy imports and APIs;
 - extend CLI tests without moving CLI concerns into the domain.
 - the configuration contract is now explicit (TODO 2): `configs/default.yaml`
   is the canonical schema and the pre-MVP root `config.yaml` was removed;
-- reintroduce LLM bidder configuration when AI agents are approved. The
-  historical fields from the removed `config.yaml` are the starting point:
-  `llm.provider`, `llm.model`, `llm.max_tokens`, `llm.temperature`,
-  `llm.timeout`, `llm.retry_attempts`, `llm.retry_delay`,
-  `buyers[].personality` (kept in git history).
+
+The CLI now validates the configuration contract up front (`simulation.seed`
+int, `simulation.budget` int ≥ 25, non-empty `buyers` list with valid
+`id`/`name`/`strategy`/`priority`) and reports clear, uniform error messages;
+`tests/test_cli.py` covers the contract without moving CLI concerns into the
+domain.
 
 ## Explicitly out of scope for now
 

@@ -56,6 +56,16 @@ def make_checkpoint_file(tmp_path: Path, *, no_progress: bool = False) -> Path:
     return JsonStore().save_checkpoint(checkpoint, path)
 
 
+def capture_log_errors(monkeypatch) -> list[str]:
+    errors: list[str] = []
+
+    def record(message: str, *args, **kwargs) -> None:
+        errors.append(message.format(*args) if args else message)
+
+    monkeypatch.setattr(cli_module.logger, "error", record)
+    return errors
+
+
 def test_cli_writes_report_for_complete_fixture(tmp_path):
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
@@ -399,6 +409,199 @@ def test_cli_requires_at_least_one_buyer(tmp_path):
     )
 
     assert main(["--config", str(config)]) == 1
+
+
+# — configuration contract validation (P2) —
+
+
+def test_cli_rejects_buyers_as_mapping(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": {"b1": {"id": "b1", "name": "Alpha"}},
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'buyers' must be a non-empty list" in error for error in errors)
+
+
+def test_cli_rejects_string_seed(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": "42"},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1", "name": "Alpha"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'simulation.seed' must be an int" in error for error in errors)
+
+
+def test_cli_rejects_float_seed(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42.5},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1", "name": "Alpha"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'simulation.seed' must be an int" in error for error in errors)
+
+
+def test_cli_rejects_bool_seed(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": True},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1", "name": "Alpha"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'simulation.seed' must be an int" in error for error in errors)
+
+
+def test_cli_rejects_non_int_budget(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": "500", "seed": 42},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1", "name": "Alpha"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'simulation.budget' must be an int >= 25" in error for error in errors)
+
+
+def test_cli_rejects_unknown_strategy(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "chaos"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any(
+        "'buyers[0].strategy' must be 'deterministic' or 'random'" in error
+        for error in errors
+    )
+
+
+def test_cli_rejects_buyer_without_name(tmp_path, monkeypatch):
+    config = tmp_path / "config.yaml"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": "dummy.xlsx"},
+            "buyers": [{"id": "b1"}],
+        },
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any(
+        "'buyers[0].name' must be a non-empty string" in error for error in errors
+    )
+
+
+def test_cli_buyer_strategy_defaults_to_deterministic(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook)},
+            "buyers": [{"id": "b1", "name": "Alpha"}],
+        },
+    )
+
+    exit_code = main(
+        ["--config", str(config), "--checkpoint", str(checkpoint)]
+    )
+
+    assert exit_code == 1
+    data = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert data["buyers"][0]["strategy"] == "deterministic"
+
+
+def test_cli_buyer_priority_defaults_to_index(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook)},
+            "buyers": [
+                {"id": "b1", "name": "Alpha"},
+                {"id": "b2", "name": "Beta"},
+            ],
+        },
+    )
+
+    exit_code = main(
+        ["--config", str(config), "--checkpoint", str(checkpoint)]
+    )
+
+    assert exit_code == 1
+    data = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert [buyer["priority"] for buyer in data["buyers"]] == [0, 1]
+
+
+def test_cli_log_to_file_creates_log_file(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    log_dir = tmp_path / "logs"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook), "logs": str(log_dir)},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+            "logging": {"level": "INFO", "log_to_file": True},
+        },
+    )
+
+    assert main(["--config", str(config), "--output", str(report)]) == 0
+    assert list(log_dir.glob("fantacalcio_*.log"))
+
+
+def test_cli_missing_config_file_returns_error(tmp_path):
+    assert main(["--config", str(tmp_path / "missing.yaml")]) == 1
 
 
 def test_default_config_satisfies_contract():
