@@ -18,7 +18,6 @@ from utils.json_store import JsonStore
 from utils.logger import setup_logger
 
 DEFAULT_CONFIG = Path("configs/default.yaml")
-DEFAULT_PLAYERS = Path("data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx")
 
 
 def _load_config(path: Path) -> dict[str, Any]:
@@ -28,7 +27,19 @@ def _load_config(path: Path) -> dict[str, Any]:
         config = yaml.safe_load(stream) or {}
     if not isinstance(config, dict):
         raise ValueError("Config root must be a mapping")
+    _validate_config(config)
     return config
+
+
+def _validate_config(config: dict[str, Any]) -> None:
+    simulation = config.get("simulation", {})
+    paths = config.get("paths", {})
+    if not isinstance(simulation, dict):
+        raise ValueError("'simulation' must be a mapping")
+    if simulation.get("seed") is None:
+        raise ValueError("'simulation.seed' is required")
+    if not isinstance(paths, dict) or not paths.get("players"):
+        raise ValueError("'paths.players' is required")
 
 
 def _as_file_path(value: str | Path | None, default: Path, filename: str) -> Path:
@@ -140,18 +151,16 @@ def main(argv: list[str] | None = None) -> int:
                 log_to_file=bool(logging_config.get("log_to_file", False)),
             )
 
-            budget = int(simulation.get("budget", simulation.get("budget_iniziale", 500)))
-            seed = args.seed if args.seed is not None else simulation.get("seed")
-            players_path = args.players or Path(
-                paths.get("players", paths.get("database", DEFAULT_PLAYERS))
-            )
+            budget = int(simulation.get("budget", 500))
+            seed = args.seed if args.seed is not None else simulation["seed"]
+            players_path = args.players or Path(paths["players"])
             output_path = _as_file_path(
                 args.output or paths.get("output"),
                 Path("data/results/report.json"),
                 "report.json",
             )
             checkpoint_path = _as_file_path(
-                args.checkpoint or paths.get("checkpoint") or paths.get("checkpoints"),
+                args.checkpoint or paths.get("checkpoint"),
                 Path("data/checkpoints/checkpoint.json"),
                 "checkpoint.json",
             )

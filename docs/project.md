@@ -83,6 +83,35 @@ buyers:
 uses an injected seeded random generator and can return zero. Neither bidder
 mutates the squad or player; the domain validates and applies purchases.
 
+### Configuration contract
+
+`configs/default.yaml` is the only supported configuration schema. The CLI
+reads these fields:
+
+| Section | Field | Required | Notes |
+| --- | --- | --- | --- |
+| `simulation` | `budget` | no | int, default `500`, minimum 25 |
+| `simulation` | `seed` | yes | int, seeds `random.Random` |
+| `paths` | `players` | yes | Excel workbook path |
+| `paths` | `output` | no | report path or directory |
+| `paths` | `checkpoint` | no | checkpoint path or directory |
+| `paths` | `logs` | no | log directory, default `logs` |
+| `buyers` | list | yes | non-empty; each entry has `id`, `name`, `strategy` (`deterministic` or `random`, default `deterministic`), `priority` (default: list index) |
+| `logging` | `level` | no | default `INFO` |
+| `logging` | `log_to_file` | no | default `false` |
+
+Unknown sections and fields are ignored. Precedence:
+
+- `--seed`, `--players`, `--output`, and `--checkpoint` override the
+  corresponding YAML values;
+- `--config` replaces `configs/default.yaml` entirely, without merging;
+- with `--resume`, the checkpoint snapshots are authoritative: YAML, the
+  Excel workbook, and `--seed` are ignored.
+
+The legacy root `config.yaml` (pre-MVP, with `budget_iniziale`, `database`,
+`checkpoints`, `llm`, and `auction` sections) has been removed. The future
+LLM/personality configuration is tracked in `docs/roadmap.md`.
+
 ## Input and output
 
 The Excel adapter reads the `Tutti` sheet, whose real header is on the second
@@ -172,10 +201,7 @@ exhaustion, and CLI success/failure paths.
 
 ## TODO / debito tecnico
 
-Priorità immediate per la stabilizzazione P2:
-
-1. **Decidere e chiarire lo schema di configurazione legacy.**
-   Risolvere l'ambiguità tra `configs/default.yaml` e il vecchio `config.yaml`,
-   documentando schema, campi supportati, precedenza tra CLI e YAML e strategia
-   di compatibilità o migrazione; aggiungere test quando la decisione sarà
-   approvata.
+1. **Configurazione LLM per agenti AI.** Reintrodurre le sezioni `llm` e
+   `buyers[].personality` con design dedicato quando la roadmap approverà gli
+   agenti AI; i campi storici sono registrati in `docs/roadmap.md` e nella
+   storia git (il vecchio `config.yaml` è stato rimosso col TODO 2).

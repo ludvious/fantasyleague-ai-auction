@@ -33,16 +33,18 @@ def write_workbook(path: Path, counts: dict[str, int]) -> None:
 
 
 def write_config(path: Path, workbook: Path, buyers: list[dict]) -> None:
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "simulation": {"budget": 500, "seed": 42},
-                "paths": {"players": str(workbook)},
-                "buyers": buyers,
-            }
-        ),
-        encoding="utf-8",
+    write_raw_config(
+        path,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook)},
+            "buyers": buyers,
+        },
     )
+
+
+def write_raw_config(path: Path, data: dict) -> None:
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
 def make_checkpoint_file(tmp_path: Path, *, no_progress: bool = False) -> Path:
@@ -244,3 +246,176 @@ def test_cli_resume_does_not_read_excel(monkeypatch, tmp_path):
     monkeypatch.setattr(cli_module.ExcelHandler, "load_players", fail_if_excel_is_read)
 
     assert main(["--resume", str(checkpoint), "--output", str(report)]) == 0
+
+
+# — configuration contract (TODO 2) —
+
+
+def test_cli_ignores_legacy_config_keys(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget_iniziale": 24, "seed": 42},
+            "paths": {
+                "players": str(workbook),
+                "database": str(tmp_path / "missing.xlsx"),
+                "checkpoints": str(tmp_path / "legacy-checkpoints"),
+            },
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        },
+    )
+
+    exit_code = main(["--config", str(config), "--output", str(report)])
+
+    assert exit_code == 0
+    assert report.exists()
+
+
+def test_cli_requires_seed_in_config(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500},
+            "paths": {"players": str(workbook)},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        },
+    )
+
+    assert main(["--config", str(config), "--output", str(report)]) == 1
+    assert not report.exists()
+
+
+def test_cli_requires_players_path_in_config(tmp_path):
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        },
+    )
+
+    assert main(["--config", str(config), "--output", str(report)]) == 1
+    assert not report.exists()
+
+
+def test_cli_seed_overrides_yaml_seed(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_config(
+        config,
+        workbook,
+        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+    )
+
+    exit_code = main(
+        [
+            "--config",
+            str(config),
+            "--seed",
+            "999",
+            "--checkpoint",
+            str(checkpoint),
+        ]
+    )
+
+    assert exit_code == 1
+    data = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert data["simulation"]["seed"] == 999
+
+
+def test_cli_players_override_beats_yaml(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(tmp_path / "missing.xlsx")},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        },
+    )
+
+    exit_code = main(
+        [
+            "--config",
+            str(config),
+            "--players",
+            str(workbook),
+            "--output",
+            str(report),
+        ]
+    )
+
+    assert exit_code == 0
+    assert report.exists()
+
+
+def test_cli_output_override_beats_yaml(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    yaml_report = tmp_path / "yaml-report.json"
+    cli_report = tmp_path / "cli-report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook), "output": str(yaml_report)},
+            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        },
+    )
+
+    assert main(["--config", str(config), "--output", str(cli_report)]) == 0
+    assert cli_report.exists()
+    assert not yaml_report.exists()
+
+
+def test_cli_requires_at_least_one_buyer(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(
+        config,
+        {
+            "simulation": {"budget": 500, "seed": 42},
+            "paths": {"players": str(workbook)},
+            "buyers": [],
+        },
+    )
+
+    assert main(["--config", str(config)]) == 1
+
+
+def test_default_config_satisfies_contract():
+    repo_root = Path(__file__).resolve().parent.parent
+    default = yaml.safe_load(
+        repo_root.joinpath("configs/default.yaml").read_text(encoding="utf-8")
+    )
+
+    assert default["simulation"]["budget"] == 500
+    assert default["simulation"]["seed"] == 42
+    assert default["paths"]["players"]
+    assert default["buyers"]
+    for buyer in default["buyers"]:
+        assert buyer["id"] and buyer["name"]
+        assert buyer["strategy"] in ("deterministic", "random")
+
+
+def test_legacy_root_config_removed():
+    repo_root = Path(__file__).resolve().parent.parent
+    assert not repo_root.joinpath("config.yaml").exists()
