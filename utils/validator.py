@@ -1,161 +1,53 @@
-from typing import List, Optional, Tuple
-from loguru import logger
+"""Small validation helpers for the current domain models."""
 
-from core.models import Player, Team, PlayerStatus
+from __future__ import annotations
+
+from core.models import Player, PlayerStatus, Squad
+
 
 class ValidationResult:
-    
     def __init__(self, is_valid: bool, message: str = ""):
         self.is_valid = is_valid
         self.message = message
-    
-    def __bool__(self):
+
+    def __bool__(self) -> bool:
         return self.is_valid
-    
-    def __str__(self):
+
+    def __str__(self) -> str:
         return f"{'✓' if self.is_valid else '✗'} {self.message}"
 
 
-def validate_bid(bid: int, buyer: Team, player: Player) -> ValidationResult:
-    """
-    Validates an offer from a buyer.
-    
-    Args:
-        bid: Offer amount
-        buyer: Buyer's team
-        player: Player being auctioned
-    
-    Returns:
-        ValidationResult with outcome and message
-    """
-
-    if bid < 0: #TODO: handle negative bid as offer equal to 0
-        return ValidationResult(
-            False,
-            f"Offerta negativa non valida: {bid}" 
-        )
-    
-    if bid > buyer.max_bid_allowed:
-        return ValidationResult(
-            False,
-            f"Offerta {bid} supera la massima offerta possibile {buyer.max_bid_allowed}"
-            f"(devi riservare 1 credito per ogni slot rimanente)"
-        )
-    
+def validate_bid(bid: int, buyer: Squad, player: Player) -> ValidationResult:
+    if bid < 0:
+        return ValidationResult(False, f"Negative bid: {bid}")
     if buyer.is_complete:
-        return ValidationResult(
-            False,
-            f"Rosa già completa ({buyer.team_size}/25), non puoi fare offerte!"
-        )
-    
-    return ValidationResult(True, "Offerta valida")
+        return ValidationResult(False, "Roster is already complete")
+    if buyer.remaining_for(player.position) == 0:
+        return ValidationResult(False, f"Role {player.position.value} is already full")
+    if bid > buyer.max_bid_allowed:
+        return ValidationResult(False, f"Bid exceeds maximum {buyer.max_bid_allowed}")
+    return ValidationResult(True, "Valid bid")
 
 
-def validate_team_complete(team: Team) -> ValidationResult:
-    """
-    Verify that a team has a complete and valid roster.
-    
-    Args:
-        team: Team to validate
-        
-    Returns:
-        ValidationResult
-    """
-    
-    if team.team_size < 25:
-        return ValidationResult(
-            False,
-            f"Rosa incompleta: {team.team_size}/25 giocatori"
-        )
-    
-    if team.team_size > 25:
-        return ValidationResult(
-            False,
-            f"Rosa troppo grande: {team.team_size}/25 giocatori"
-        )
-    
+def validate_team_complete(team: Squad) -> ValidationResult:
+    if not team.is_complete:
+        return ValidationResult(False, f"Incomplete roster: {team.team_size}/25 players")
     for player in team.players:
-        if player.state != PlayerStatus.SOLD:
-            return ValidationResult(
-                False,
-                f"Giocatore {player.name} non risulta venduto"
-            )
+        if player.status is not PlayerStatus.SOLD:
+            return ValidationResult(False, f"Player {player.name} is not sold")
         if player.buyer_id != team.buyer_id:
-            return ValidationResult(
-                False,
-                f"Giocatore {player.name} risulta venduto a buyer diverso: {player.buyer_id}"
-            )
-    
-    return ValidationResult(True, "Rosa completa e valida")
+            return ValidationResult(False, f"Player {player.name} has another owner")
+    return ValidationResult(True, "Complete roster")
 
 
-def check_buyer_can_bid(buyer: Team, available_players: int) -> ValidationResult:
-    """
-    Verifica se un buyer può ancora completare la rosa.
-    
-    Args:
-        buyer: Team buyer
-        available_players: Numero di giocatori ancora disponibili
-        
-    Returns:
-        ValidationResult
-    """
-    
-    slots_rimanenti = 25 - buyer.team_size
-    
-    if slots_rimanenti == 0:
-        return ValidationResult(True, "Rosa già completa")
-    
-    if available_players < slots_rimanenti:
+def check_buyer_can_bid(buyer: Squad, available_players: int) -> ValidationResult:
+    if buyer.is_complete:
+        return ValidationResult(True, "Roster is already complete")
+    if available_players < buyer.remaining_slots:
         return ValidationResult(
             False,
-            f"Giocatori disponibili insufficienti: {available_players} "
-            f"disponibili, {slots_rimanenti} richiesti"
+            f"Not enough players: {available_players} available, {buyer.remaining_slots} required",
         )
-    
-    if buyer.budget_rimanente < slots_rimanenti:
-        return ValidationResult(
-            False,
-            f"Budget insufficiente per completare rosa: "
-            f"{buyer.budget_rimanente} crediti per {slots_rimanenti} giocatori"
-        )
-    
-    return ValidationResult(True, "Buyer può completare rosa")
-
-
-if __name__ == "__main__":
-    # Test validatori
-    from core.models import Position
-    
-    # Setup logger
-    from utils.logger import setup_logger
-    setup_logger(log_level="DEBUG")
-    
-    # Test validate_bid
-    player = Player(
-        id="1",
-        nome="Test Player",
-        ruolo=Position.A,
-        squadra_reale="Inter",
-        quotazione=25
-    )
-    
-    team = Team(
-        buyer_id="buyer_1",
-        buyer_name="Test Team",
-        budget_iniziale=500,
-        budget_rimanente=500
-    )
-    
-    # Offerta valida
-    result = validate_bid(50, team, player)
-    logger.info(f"Test offerta valida: {result}")
-    
-    # Offerta troppo alta
-    result = validate_bid(600, team, player)
-    logger.info(f"Test offerta > budget: {result}")
-    
-    # Offerta che viola constraint slot
-    team.budget_rimanente = 30
-    result = validate_bid(10, team, player)  # max_allowed = 30 - 25 + 1 = 6
-    logger.info(f"Test offerta > max_allowed: {result}")
+    if buyer.budget_remaining < buyer.remaining_slots:
+        return ValidationResult(False, "Not enough budget to reserve remaining slots")
+    return ValidationResult(True, "Buyer can continue")
