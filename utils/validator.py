@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.models import Player, PlayerStatus, Squad
+from core.models import BidValidationError, Player, PlayerStatus, Squad
 
 
 class ValidationResult:
@@ -17,15 +17,11 @@ class ValidationResult:
         return f"{'✓' if self.is_valid else '✗'} {self.message}"
 
 
-def validate_bid(bid: int, buyer: Squad, player: Player) -> ValidationResult:
-    if bid < 0:
-        return ValidationResult(False, f"Negative bid: {bid}")
-    if buyer.is_complete:
-        return ValidationResult(False, "Roster is already complete")
-    if buyer.remaining_for(player.position) == 0:
-        return ValidationResult(False, f"Role {player.position.value} is already full")
-    if bid > buyer.max_bid_allowed:
-        return ValidationResult(False, f"Bid exceeds maximum {buyer.max_bid_allowed}")
+def validate_bid(bid: object, buyer: Squad, player: Player) -> ValidationResult:
+    try:
+        buyer.validate_bid(player, bid)
+    except BidValidationError as exc:
+        return ValidationResult(False, str(exc))
     return ValidationResult(True, "Valid bid")
 
 

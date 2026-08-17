@@ -40,6 +40,6 @@ class RandomBidder:
     def bid(self, player: Player, squad: Squad) -> int:
         if squad.buyer_id != self.buyer_id:
             return 0
-        if squad.remaining_for(player.position) == 0 or squad.max_bid_allowed < 1:
+        if squad.remaining_for(player.position) == 0:
             return 0
-        return self.rng.randint(1, squad.max_bid_allowed)
+        return self.rng.randint(0, squad.max_bid_allowed)

@@ -13,6 +13,8 @@ from core.models import (
     AuctionResult,
     AuctionState,
     AuctionStatus,
+    BidIssue,
+    BidValidationError,
     Player,
     PlayerStatus,
     SimulationReport,
@@ -72,32 +74,73 @@ class AuctionEngine:
         self._rng = random.Random(seed)
         self.seed = seed
         self.auction_count = 0
+        self.bid_issues: list[BidIssue] = []
 
     def select_player(self) -> Player | None:
         """Select one available player without replacement."""
         available = self.state.available_players
         return self._rng.choice(available) if available else None
 
+    def _record_bid_issue(
+        self, player: Player, bidder: Bidder, code: str, message: str
+    ) -> None:
+        issue = BidIssue(
+            auction_number=self.auction_count,
+            player_id=player.id,
+            buyer_id=bidder.buyer_id,
+            code=code,
+            message=message,
+        )
+        self.bid_issues.append(issue)
+        logger.warning(
+            "Bid issue in auction {} for player {} and bidder {} [{}]: {}",
+            issue.auction_number,
+            issue.player_id,
+            issue.buyer_id,
+            issue.code,
+            issue.message,
+        )
+
     def _collect_bids(self, player: Player) -> dict[str, int]:
         bids: dict[str, int] = {}
         for bidder in self.bidders:
             squad = self.state.squads[bidder.buyer_id]
             eligible = not squad.is_complete and squad.remaining_for(player.position) > 0
-            bid = bidder.bid(player, squad) if eligible else 0
-            if not isinstance(bid, int) or isinstance(bid, bool):
-                raise ValueError(f"Bidder {bidder.buyer_id} returned a non-integer bid")
-            if bid < 0:
-                raise ValueError(f"Bidder {bidder.buyer_id} returned a negative bid")
-            if bid > squad.max_bid_allowed:
-                raise ValueError(
-                    f"Bidder {bidder.buyer_id} bid {bid}, above legal maximum "
-                    f"{squad.max_bid_allowed}"
+            if not eligible:
+                bids[bidder.buyer_id] = 0
+                continue
+
+            try:
+                bid = bidder.bid(player, squad)
+            except Exception as exc:
+                self._record_bid_issue(
+                    player,
+                    bidder,
+                    "bidder_exception",
+                    f"Bidder raised {type(exc).__name__}: {exc}",
                 )
+                bids[bidder.buyer_id] = 0
+                continue
+
+            try:
+                squad.validate_bid(player, bid)
+            except BidValidationError as exc:
+                self._record_bid_issue(player, bidder, exc.code, str(exc))
+                bids[bidder.buyer_id] = 0
+                continue
+
             bids[bidder.buyer_id] = bid
         return bids
 
+    def _canonical_player(self, player: Player) -> Player:
+        for canonical in self.state.players:
+            if canonical.id == player.id:
+                return canonical
+        raise ValueError(f"unknown player ID {player.id}")
+
     def auction_player(self, player: Player) -> AuctionResult:
         """Run exactly one first-round auction for an available player."""
+        player = self._canonical_player(player)
         if player.status is not PlayerStatus.AVAILABLE:
             raise ValueError(f"Player {player.id} is not available")
 

@@ -31,6 +31,31 @@ def test_deterministic_bidder_uses_priority_not_excel_quotation_as_starting_pric
     assert bidder.bid(make_player("a", list_price=99), squad) == 3
 
 
+class AlwaysZeroRandom:
+    def randint(self, lower, upper):
+        assert lower == 0
+        assert upper >= 0
+        return 0
+
+
+def test_random_bidder_can_return_zero():
+    player = make_player("a")
+    squad = Squad(buyer_id="b1", name="Alpha", budget_initial=500)
+
+    bid = RandomBidder("b1", "Alpha", AlwaysZeroRandom()).bid(player, squad)
+
+    assert bid == 0
+
+
+def test_random_bidder_returns_zero_when_legal_maximum_is_zero():
+    player = make_player("a")
+    squad = Squad(buyer_id="b1", name="Alpha", budget_initial=500)
+    squad.budget_remaining = 0
+
+    assert squad.max_bid_allowed == 0
+    assert RandomBidder("b1", "Alpha", AlwaysZeroRandom()).bid(player, squad) == 0
+
+
 def test_random_bidder_is_reproducible_with_equal_seeds():
     player = make_player("a")
     first = RandomBidder(

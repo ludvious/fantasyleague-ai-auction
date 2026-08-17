@@ -30,6 +30,14 @@ class PlayerStatus(str, Enum):
     UNSOLD = "invenduto"
 
 
+class BidValidationError(ValueError):
+    """Raised when a bidder offer violates a domain rule."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
 class Player(BaseModel):
     """A player from the source list and its auction state."""
 
@@ -108,20 +116,38 @@ class Squad(BaseModel):
     def remaining_for(self, position: Position) -> int:
         return max(0, ROSTER_REQUIREMENTS[position] - self.role_counts()[position.value])
 
+    def validate_bid(self, player: Player, bid: object) -> None:
+        """Validate a bidder offer without mutating the squad or player."""
+        if type(bid) is not int:
+            raise BidValidationError(
+                "invalid_type",
+                "Bid must be a Python int; bool and other numeric types are not accepted",
+            )
+        if bid < 0:
+            raise BidValidationError("negative", "Bid cannot be negative")
+        if self.is_complete:
+            raise BidValidationError("roster_complete", "Roster is already complete")
+        if player.status is not PlayerStatus.AVAILABLE:
+            raise BidValidationError(
+                "player_unavailable", f"Player {player.id} is not available"
+            )
+        if self.remaining_for(player.position) == 0:
+            raise BidValidationError(
+                "role_full", f"Role {player.position.value} is already full"
+            )
+        if bid > self.max_bid_allowed:
+            raise BidValidationError(
+                "above_maximum",
+                f"Bid exceeds the legal maximum {self.max_bid_allowed}",
+            )
+
     def add_player(self, player: Player, price: int) -> None:
         """Validate and record a purchase."""
         if any(existing.id == player.id for existing in self.players):
             raise ValueError(f"Player {player.id} was already purchased")
-        if player.status is not PlayerStatus.AVAILABLE:
-            raise ValueError(f"Player {player.id} is not available")
-        if self.remaining_for(player.position) == 0:
-            raise ValueError(f"Role {player.position.value} is already full")
-        if not isinstance(price, int) or isinstance(price, bool) or price < 1:
+        self.validate_bid(player, price)
+        if price == 0:
             raise ValueError("Purchase price must be at least 1")
-        if price > self.max_bid_allowed:
-            raise ValueError(
-                f"Price {price} exceeds the legal maximum bid {self.max_bid_allowed}"
-            )
 
         player.status = PlayerStatus.SOLD
         player.buyer_id = self.buyer_id
@@ -137,6 +163,19 @@ class AuctionStatus(str, Enum):
     SOLD = "venduto"
     UNSOLD_NO_BID = "invenduto_nessuna_offerta"
     UNSOLD_TIE = "invenduto_parita"
+
+
+class BidIssue(BaseModel):
+    """A bidder failure isolated from the auction engine."""
+
+    auction_number: int = Field(ge=1)
+    player_id: str
+    buyer_id: str
+    code: str
+    message: str
+
+    def to_dict(self) -> dict:
+        return self.model_dump(mode="json")
 
 
 class AuctionResult(BaseModel):
