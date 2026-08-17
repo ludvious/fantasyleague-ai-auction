@@ -10,14 +10,17 @@ from loguru import logger
 
 from agents.base_agent import Bidder
 from core.models import (
+    AuctionCheckpoint,
     AuctionResult,
     AuctionState,
+    BidderSnapshot,
     AuctionStatus,
     BidIssue,
     BidValidationError,
     Player,
     PlayerStatus,
     SimulationReport,
+    SimulationSnapshot,
     Squad,
     Transaction,
 )
@@ -44,37 +47,137 @@ class AuctionEngine:
         bidders: Sequence[Bidder],
         budget: int = 500,
         seed: int | None = None,
+        state: AuctionState | None = None,
     ):
         if not bidders:
             raise ValueError("At least one bidder is required")
         if not isinstance(budget, int) or isinstance(budget, bool) or budget < 25:
             raise ValueError("Budget must be an integer of at least 25 credits")
 
-        player_list = list(players)
         bidder_list = list(bidders)
-        player_ids = [player.id for player in player_list]
         bidder_ids = [bidder.buyer_id for bidder in bidder_list]
-        if len(set(player_ids)) != len(player_ids):
-            raise ValueError("Player IDs must be unique")
         if len(set(bidder_ids)) != len(bidder_ids):
             raise ValueError("Bidder IDs must be unique")
 
+        if state is None:
+            player_list = list(players)
+            player_ids = [player.id for player in player_list]
+            if len(set(player_ids)) != len(player_ids):
+                raise ValueError("Player IDs must be unique")
+            state = AuctionState(
+                players=player_list,
+                squads={
+                    bidder.buyer_id: Squad(
+                        buyer_id=bidder.buyer_id,
+                        name=bidder.name,
+                        budget_initial=budget,
+                    )
+                    for bidder in bidder_list
+                },
+            )
+        else:
+            player_ids = [player.id for player in state.players]
+            if len(set(player_ids)) != len(player_ids):
+                raise ValueError("Player IDs must be unique")
+            if any(bidder_id not in state.squads for bidder_id in bidder_ids):
+                raise ValueError("Bidder IDs must match persisted squads")
+
         self.bidders = bidder_list
-        self.state = AuctionState(
-            players=player_list,
-            squads={
-                bidder.buyer_id: Squad(
-                    buyer_id=bidder.buyer_id,
-                    name=bidder.name,
-                    budget_initial=budget,
-                )
-                for bidder in bidder_list
-            },
-        )
+        self.state = state
         self._rng = random.Random(seed)
         self.seed = seed
-        self.auction_count = 0
-        self.bid_issues: list[BidIssue] = []
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint: AuctionCheckpoint,
+        bidders: Sequence[Bidder],
+    ) -> AuctionEngine:
+        """Restore the next pool-exhaustion round from a validated checkpoint."""
+        if not isinstance(checkpoint, AuctionCheckpoint):
+            raise TypeError("checkpoint must be an AuctionCheckpoint")
+        if checkpoint.schema_version != 1:
+            raise ValueError("Unsupported checkpoint schema version")
+        if checkpoint.document_type != "auction_checkpoint":
+            raise ValueError("Document is not an auction checkpoint")
+        if checkpoint.error_code != "pool_exhausted":
+            raise ValueError("Checkpoint is not resumable: pool_exhausted required")
+
+        unsold = [
+            player for player in checkpoint.players
+            if player.status is PlayerStatus.UNSOLD
+        ]
+        if not unsold:
+            raise ValueError("Checkpoint has no unsold players to resume")
+
+        incomplete_ids = {
+            buyer_id
+            for buyer_id, squad in checkpoint.squads.items()
+            if not squad.is_complete
+        }
+        if not incomplete_ids:
+            raise ValueError("Checkpoint has no incomplete squads to resume")
+        if set(checkpoint.resume.incomplete_buyer_ids) != incomplete_ids:
+            raise ValueError("Checkpoint resume metadata does not match squads")
+
+        bidder_list = list(bidders)
+        bidder_ids = {bidder.buyer_id for bidder in bidder_list}
+        missing_bidders = incomplete_ids - bidder_ids
+        if missing_bidders:
+            raise ValueError(
+                "Missing bidders for incomplete squads: "
+                + ", ".join(sorted(missing_bidders))
+            )
+        if bidder_ids - set(checkpoint.squads):
+            raise ValueError("Bidder IDs must match persisted squads")
+
+        players = []
+        for source in checkpoint.players:
+            player = source.model_copy(deep=True)
+            if player.status is PlayerStatus.UNSOLD:
+                player.status = PlayerStatus.AVAILABLE
+                player.buyer_id = None
+                player.selling_price = None
+            players.append(player)
+
+        state = AuctionState(
+            players=players,
+            squads={
+                buyer_id: squad.model_copy(deep=True)
+                for buyer_id, squad in checkpoint.squads.items()
+            },
+            transactions=[
+                transaction.model_copy(deep=True)
+                for transaction in checkpoint.transactions
+            ],
+            started_at=checkpoint.timestamp_start,
+            ended_at=checkpoint.timestamp_end,
+            run_number=checkpoint.run_number + 1,
+            auction_count=checkpoint.auction_count,
+            total_duration_seconds=checkpoint.duration_seconds,
+            last_run_started_at=checkpoint.last_run_started_at,
+            last_run_ended_at=checkpoint.last_run_ended_at,
+            last_run_duration_seconds=checkpoint.last_run_duration_seconds,
+            bid_issues=[issue.model_copy(deep=True) for issue in checkpoint.bid_issues],
+        )
+        active_bidders = [
+            bidder for bidder in bidder_list if bidder.buyer_id in incomplete_ids
+        ]
+        return cls(
+            state.players,
+            active_bidders,
+            budget=checkpoint.simulation.budget,
+            seed=checkpoint.simulation.seed,
+            state=state,
+        )
+
+    @property
+    def auction_count(self) -> int:
+        return self.state.auction_count
+
+    @property
+    def bid_issues(self) -> list[BidIssue]:
+        return self.state.bid_issues
 
     def select_player(self) -> Player | None:
         """Select one available player without replacement."""
@@ -144,7 +247,7 @@ class AuctionEngine:
         if player.status is not PlayerStatus.AVAILABLE:
             raise ValueError(f"Player {player.id} is not available")
 
-        self.auction_count += 1
+        self.state.auction_count += 1
         bids = self._collect_bids(player)
         max_bid = max(bids.values(), default=0)
         positive_winners = [buyer_id for buyer_id, bid in bids.items() if bid == max_bid and bid > 0]
@@ -192,15 +295,32 @@ class AuctionEngine:
             status=AuctionStatus.SOLD,
         )
 
+    def _finish_run(self, ended_at: datetime) -> None:
+        self.state.ended_at = ended_at
+        started_at = self.state.last_run_started_at or ended_at
+        self.state.last_run_ended_at = ended_at
+        self.state.last_run_duration_seconds = max(
+            0.0, (ended_at - started_at).total_seconds()
+        )
+        self.state.total_duration_seconds += self.state.last_run_duration_seconds
+
     def _report(self) -> SimulationReport:
         end = self.state.ended_at or datetime.now(timezone.utc)
         start = self.state.started_at or end
+        last_start = self.state.last_run_started_at or start
+        last_end = self.state.last_run_ended_at or end
         sold = [player for player in self.state.players if player.status is PlayerStatus.SOLD]
         unsold = [player for player in self.state.players if player.status is PlayerStatus.UNSOLD]
         return SimulationReport(
+            schema_version=1,
+            document_type="auction_report",
             timestamp_start=start,
             timestamp_end=end,
-            duration_seconds=max(0.0, (end - start).total_seconds()),
+            duration_seconds=self.state.total_duration_seconds,
+            last_run_started_at=last_start,
+            last_run_ended_at=last_end,
+            last_run_duration_seconds=self.state.last_run_duration_seconds,
+            run_number=self.state.run_number,
             squads={
                 buyer_id: squad.model_copy(deep=True)
                 for buyer_id, squad in self.state.squads.items()
@@ -213,11 +333,62 @@ class AuctionEngine:
             total_players=len(self.state.players),
             players_sold=len(sold),
             players_unsold=len(unsold),
+            bid_issues=[issue.model_copy(deep=True) for issue in self.bid_issues],
+        )
+
+    def build_checkpoint(
+        self,
+        simulation: SimulationSnapshot,
+        buyers: list[BidderSnapshot],
+        error: Exception,
+        missing_roles: dict[str, dict[str, int]],
+    ) -> AuctionCheckpoint:
+        """Project the current exhausted state into a resumable checkpoint."""
+        if not isinstance(error, AuctionIncompleteError):
+            raise ValueError("Only pool exhaustion can create a checkpoint")
+
+        report = self._report()
+        return AuctionCheckpoint(
+            schema_version=1,
+            document_type="auction_checkpoint",
+            timestamp_start=report.timestamp_start,
+            timestamp_end=report.timestamp_end,
+            duration_seconds=report.duration_seconds,
+            last_run_started_at=report.last_run_started_at,
+            last_run_ended_at=report.last_run_ended_at,
+            last_run_duration_seconds=report.last_run_duration_seconds,
+            run_number=report.run_number,
+            squads=report.squads,
+            transactions=report.transactions,
+            unsold_players=report.unsold_players,
+            total_players=report.total_players,
+            players_sold=report.players_sold,
+            players_unsold=report.players_unsold,
+            bid_issues=report.bid_issues,
+            players=[player.model_copy(deep=True) for player in self.state.players],
+            simulation=simulation,
+            buyers=[buyer.model_copy(deep=True) for buyer in buyers],
+            auction_count=self.auction_count,
+            missing_roles={
+                buyer_id: dict(roles)
+                for buyer_id, roles in missing_roles.items()
+            },
+            error_code="pool_exhausted",
+            error=str(error),
+            resume={
+                "incomplete_buyer_ids": list(missing_roles),
+                "pool": "unsold_players",
+            },
         )
 
     def run(self) -> SimulationReport:
         """Run until all squads are complete or the pool is exhausted."""
-        self.state.started_at = datetime.now(timezone.utc)
+        run_started_at = datetime.now(timezone.utc)
+        if self.state.started_at is None:
+            self.state.started_at = run_started_at
+        self.state.last_run_started_at = run_started_at
+        self.state.last_run_ended_at = None
+        self.state.last_run_duration_seconds = 0.0
         logger.info("Starting auction with {} players", len(self.state.players))
 
         while True:
@@ -227,12 +398,12 @@ class AuctionEngine:
                 if not squad.is_complete
             }
             if not incomplete:
-                self.state.ended_at = datetime.now(timezone.utc)
+                self._finish_run(datetime.now(timezone.utc))
                 logger.success("Auction completed in {} player auctions", self.auction_count)
                 return self._report()
 
             player = self.select_player()
             if player is None:
-                self.state.ended_at = datetime.now(timezone.utc)
+                self._finish_run(datetime.now(timezone.utc))
                 raise AuctionIncompleteError(incomplete)
             self.auction_player(player)
