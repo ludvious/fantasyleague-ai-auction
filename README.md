@@ -45,7 +45,8 @@ The default configuration uses:
 - seed `42`;
 - four deterministic bidders;
 - `data/results/report.json` for successful reports;
-- `data/checkpoints/checkpoint.json` for diagnostic failure checkpoints.
+- `data/checkpoints/checkpoint.json` for pool-exhaustion checkpoints that can
+  be resumed.
 
 The output directories are created automatically when needed.
 
@@ -55,7 +56,8 @@ The output directories are created automatically when needed.
 --config PATH       YAML configuration file (default: configs/default.yaml)
 --players PATH      Override the configured Excel workbook
 --output PATH       Override the report path or output directory
---checkpoint PATH   Override the diagnostic checkpoint path or directory
+--checkpoint PATH   Override the checkpoint path or directory
+--resume PATH       Resume from a pool-exhaustion checkpoint
 --seed INTEGER      Override the configured random seed
 ```
 
@@ -70,7 +72,36 @@ venv/bin/python main.py \
   --seed 42
 ```
 
-The process returns `0` after a complete auction and `1` when configuration
-or auction execution fails. If the player pool is exhausted before every
-squad is complete, the checkpoint contains the current state, the error, and
-missing roles. It is diagnostic only and cannot currently resume an auction.
+## Resume from a checkpoint
+
+If the player pool is exhausted before every squad is complete, the CLI writes a
+version-1 `auction_checkpoint` JSON document. The checkpoint contains the
+cumulative report, the full player state, the remaining `UNSOLD` players, the
+missing roles, and the simulation and bidder snapshots needed for continuation.
+It is therefore autonomous: the original YAML configuration and Excel workbook
+are not needed for a resume.
+
+Resume with:
+
+```bash
+venv/bin/python main.py \
+  --resume /path/to/auction-checkpoint.json \
+  --output /path/to/final-report.json
+```
+
+A resumed round auctions only players that were `UNSOLD` in the checkpoint and
+calls only bidders whose squads are incomplete. Completed squads, cumulative
+rosters, budgets, transactions, diagnostics, counters, and timing are retained.
+The stored seed is reused with a fresh random generator; exact replay of the
+internal state of `random.Random` is not part of P1.
+
+When `--resume` is used, the checkpoint snapshots are authoritative, so
+`--config`, `--players`, and `--seed` are not read. `--output` selects the final
+report destination and defaults to `data/results/report.json`; if the resumed
+round is incomplete, `--checkpoint` selects the replacement checkpoint
+(destination), and without it the input checkpoint is replaced.
+
+The process returns `0` after a complete auction and `1` for pool exhaustion,
+configuration errors, invalid checkpoint data, file errors, or unexpected
+auction errors. Only pool exhaustion writes a resumable checkpoint; other
+failures do not write one.

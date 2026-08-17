@@ -170,7 +170,12 @@ behavior, canonical players, Excel schema handling, JSON persistence, pool
 exhaustion, and CLI success/failure paths.
 
 
-## TODO
+## TODO / debito tecnico
 
+Priorità immediate per la stabilizzazione P2:
 
-## Fix TODO:
+1. **Decidere e chiarire lo schema di configurazione legacy.**
+   Risolvere l'ambiguità tra `configs/default.yaml` e il vecchio `config.yaml`,
+   documentando schema, campi supportati, precedenza tra CLI e YAML e strategia
+   di compatibilità o migrazione; aggiungere test quando la decisione sarà
+   approvata.
