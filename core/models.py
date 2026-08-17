@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -178,6 +178,29 @@ class BidIssue(BaseModel):
         return self.model_dump(mode="json")
 
 
+class BidderSnapshot(BaseModel):
+    """Normalized bidder configuration embedded in a checkpoint."""
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    strategy: str = Field(min_length=1)
+    priority: int = Field(ge=0)
+
+
+class SimulationSnapshot(BaseModel):
+    """Simulation settings required to resume an auction autonomously."""
+
+    budget: int = Field(ge=25)
+    seed: Optional[int] = None
+
+
+class ResumeMetadata(BaseModel):
+    """Metadata describing the next pool available to a resumed run."""
+
+    incomplete_buyer_ids: list[str] = Field(min_length=1)
+    pool: Literal["unsold_players"] = "unsold_players"
+
+
 class AuctionResult(BaseModel):
     player: Player
     winner_id: Optional[str] = None
@@ -213,6 +236,13 @@ class AuctionState(BaseModel):
     transactions: list[Transaction] = Field(default_factory=list)
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
+    run_number: int = Field(default=1, ge=1)
+    auction_count: int = Field(default=0, ge=0)
+    total_duration_seconds: float = Field(default=0.0, ge=0.0)
+    last_run_started_at: Optional[datetime] = None
+    last_run_ended_at: Optional[datetime] = None
+    last_run_duration_seconds: float = Field(default=0.0, ge=0.0)
+    bid_issues: list[BidIssue] = Field(default_factory=list)
 
     @property
     def available_players(self) -> list[Player]:
@@ -225,13 +255,20 @@ class AuctionState(BaseModel):
 class SimulationReport(BaseModel):
     timestamp_start: datetime
     timestamp_end: datetime
-    duration_seconds: float
+    duration_seconds: float = Field(ge=0.0)
     squads: dict[str, Squad]
     transactions: list[Transaction]
     unsold_players: list[Player]
-    total_players: int
-    players_sold: int
-    players_unsold: int
+    total_players: int = Field(ge=0)
+    players_sold: int = Field(ge=0)
+    players_unsold: int = Field(ge=0)
+    schema_version: Literal[1] = 1
+    document_type: Literal["auction_report"] = "auction_report"
+    run_number: int = Field(default=1, ge=1)
+    last_run_started_at: Optional[datetime] = None
+    last_run_ended_at: Optional[datetime] = None
+    last_run_duration_seconds: float = Field(default=0.0, ge=0.0)
+    bid_issues: list[BidIssue] = Field(default_factory=list)
 
     @property
     def total_spent(self) -> int:
@@ -243,3 +280,17 @@ class SimulationReport(BaseModel):
 
     def to_dict(self) -> dict:
         return self.model_dump(mode="json")
+
+
+class AuctionCheckpoint(SimulationReport):
+    """Autonomous version-1 checkpoint created at pool exhaustion."""
+
+    document_type: Literal["auction_checkpoint"] = "auction_checkpoint"
+    players: list[Player]
+    simulation: SimulationSnapshot
+    buyers: list[BidderSnapshot] = Field(min_length=1)
+    auction_count: int = Field(ge=0)
+    missing_roles: dict[str, dict[str, int]]
+    error_code: str = Field(min_length=1)
+    error: str = Field(min_length=1)
+    resume: ResumeMetadata

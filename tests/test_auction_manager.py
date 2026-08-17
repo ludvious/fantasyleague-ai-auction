@@ -290,6 +290,19 @@ def test_pool_exhaustion_reports_missing_roles():
     assert engine.state.players[0].status is PlayerStatus.SOLD
 
 
+def test_auction_counters_are_persisted_in_state():
+    player = make_player("a", "A")
+    engine = AuctionEngine(
+        [player], [FixedBidder("b1", "One", 1)], budget=30, seed=1
+    )
+
+    engine.auction_player(player)
+
+    assert engine.auction_count == 1
+    assert engine.state.auction_count == 1
+    assert engine.bid_issues is engine.state.bid_issues
+
+
 def test_complete_role_is_excluded_from_bidding():
     player = make_player("new", "P")
     bidders = [
