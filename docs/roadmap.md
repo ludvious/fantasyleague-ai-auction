@@ -1,6 +1,6 @@
 ## Roadmap
 
-### P1 — Versioned reports and resumable checkpoints
+### P1 — Versioned reports and resumable checkpoints (complete)
 
 P1 turns the pool-exhaustion checkpoint into an autonomous continuation point
 while preserving the complete partial-auction report.

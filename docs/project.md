@@ -8,25 +8,25 @@ adapters.
 
 ## Current status
 
-The deterministic auction MVP is implemented and P0 is complete:
+The deterministic auction MVP is implemented and P1 is complete:
 
 - strict bid validation is centralized in `Squad`;
 - invalid bidder output and bidder exceptions are isolated and recorded as
   structured diagnostics;
 - canonical player resolution prevents external player copies from mutating
   auction state;
-- the CLI reads the supplied Excel workbook and writes a JSON report or a
-  diagnostic failure checkpoint.
+- reports and checkpoints use version-1 typed JSON contracts;
+- pool-exhaustion checkpoints are autonomous and resume with `--resume`.
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **54 tests passed**;
+- `venv/bin/pytest -q -W error`: **83 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
-The report and checkpoint formats are currently functional but not yet
-versioned. Compatibility guarantees and a complete resume workflow are part
-of later milestones.
+P1 resumes only between auction rounds, after the current player pool is
+exhausted. It does not persist an arbitrary mid-auction state, event history,
+or the exact internal state of `random.Random`.
 
 ## Squads rules
 
@@ -95,11 +95,38 @@ Id, R, Nome, Squadra, Qt.A
 `Qt.A` is stored as the player's informational list price. Player IDs must be
 unique and roles must be one of `P`, `D`, `C`, or `A`.
 
-Successful reports currently contain timestamps, duration, squads,
-transactions, unsold players, and aggregate player counts. Failure
-checkpoints contain the serialized auction state plus error and missing-role
-information when available. The inclusion and versioning of `BidIssue`
-diagnostics in a future report/checkpoint contract is still to be decided.
+Successful reports are version-1 `auction_report` documents containing
+`schema_version`, lifecycle timestamps, cumulative `duration_seconds`, the
+latest run's timestamps and duration, `run_number`, squads, transactions,
+unsold players, aggregate player counts, and all accumulated `BidIssue`
+diagnostics.
+
+Pool-exhaustion checkpoints are version-1 `auction_checkpoint` documents.
+They contain the same report fields plus the authoritative full player state,
+`missing_roles`, `error_code: "pool_exhausted"`, the error text, and resume
+metadata. They also embed the normalized bidder snapshots (`id`, `name`,
+`strategy`, `priority`) and simulation snapshot (`budget`, `seed`), so the
+original YAML and Excel files are not needed to resume.
+
+`duration_seconds` is cumulative active auction time across rounds;
+`last_run_started_at`, `last_run_ended_at`, and
+`last_run_duration_seconds` describe only the latest invocation. A resumed
+round re-auctions only players that were `UNSOLD` in the checkpoint and calls
+only bidders whose squads are incomplete. Complete squads remain in the
+report and state but receive no offers.
+
+Use the CLI like this:
+
+```bash
+venv/bin/python main.py --resume /path/to/auction-checkpoint.json \
+  --output /path/to/final-report.json
+```
+
+If the resumed pool is exhausted again, `--checkpoint PATH` selects the new
+checkpoint destination; without it, the input checkpoint is replaced. Only
+pool exhaustion creates a resumable checkpoint. Configuration errors, invalid
+checkpoint data, file errors, and unexpected engine errors return failure
+without writing one.
 
 ## Project structure
 
