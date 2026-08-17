@@ -1,0 +1,31 @@
+simulation:
+  budget: 500
+  seed: 42
+
+paths:
+  players: "data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx"
+  output: "data/results/report.json"
+  checkpoint: "data/checkpoints/checkpoint.json"
+  logs: "logs"
+
+buyers:
+  - id: "buyer_1"
+    name: "Squadra Alfa"
+    strategy: "deterministic"
+    priority: 0
+  - id: "buyer_2"
+    name: "Squadra Beta"
+    strategy: "deterministic"
+    priority: 1
+  - id: "buyer_3"
+    name: "Squadra Gamma"
+    strategy: "deterministic"
+    priority: 2
+  - id: "buyer_4"
+    name: "Squadra Delta"
+    strategy: "deterministic"
+    priority: 3
+
+logging:
+  level: "INFO"
+  log_to_file: false
