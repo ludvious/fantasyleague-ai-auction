@@ -28,6 +28,26 @@ The report and checkpoint formats are currently functional but not yet
 versioned. Compatibility guarantees and a complete resume workflow are part
 of later milestones.
 
+## Development disclosure
+
+This project is currently developed with full, end-to-end assistance from AI
+coding agents. AI agents are used to explore ideas, implement changes, write
+and review tests, inspect the codebase, document decisions, and evaluate the
+project's evolving architecture.
+
+This is intentional: the project is also an ongoing experiment in
+understanding AI-assisted software development in practice—where it helps,
+where it fails, and how its output must be tested, reviewed, and improved.
+The codebase, workflows, and design will continue to evolve as those lessons
+emerge.
+
+Contributions are welcome when they align with this approach. Contributors
+should be comfortable working in an AI-assisted workflow and with changes
+that may be proposed, implemented, or documented by AI agents, subject to
+human review and automated testing. Contributions that require excluding
+AI-assisted development from the project are not currently aligned with its
+goals.
+
 ## MVP rules
 
 Each squad contains exactly 25 players:
