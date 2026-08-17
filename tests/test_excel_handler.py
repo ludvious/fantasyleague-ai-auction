@@ -9,6 +9,9 @@ from utils.excel_handler import ExcelHandler
 DATA_FILE = Path("data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx")
 
 
+# ponytail: real-data check runs only where the workbook exists (data/ is gitignored);
+# commit a season fixture if CI must cover the real spreadsheet too.
+@pytest.mark.skipif(not DATA_FILE.exists(), reason="real data workbook not tracked in git")
 def test_load_players_skips_title_row_and_reads_all_525_players():
     players = ExcelHandler(DATA_FILE).load_players()
 
