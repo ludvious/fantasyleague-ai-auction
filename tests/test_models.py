@@ -131,3 +131,15 @@ def test_auction_state_exposes_only_available_players():
     )
 
     assert state.available_players == [available]
+
+
+def test_auction_state_has_versioned_round_defaults():
+    state = AuctionState()
+
+    assert state.run_number == 1
+    assert state.auction_count == 0
+    assert state.total_duration_seconds == 0.0
+    assert state.last_run_started_at is None
+    assert state.last_run_ended_at is None
+    assert state.last_run_duration_seconds == 0.0
+    assert state.bid_issues == []
