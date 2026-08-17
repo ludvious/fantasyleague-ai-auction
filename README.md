@@ -29,13 +29,13 @@ Create an environment and install the dependencies:
 
 ```bash
 python -m venv venv
-venv/bin/pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 Run the default simulation:
 
 ```bash
-venv/bin/python main.py --config configs/default.yaml
+python main.py --config configs/default.yaml
 ```
 
 The default configuration uses:
