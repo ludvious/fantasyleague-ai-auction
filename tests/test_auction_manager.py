@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from agents.buyer_agent import DeterministicBidder
@@ -319,3 +321,81 @@ def test_complete_role_is_excluded_from_bidding():
     assert result.status is AuctionStatus.SOLD
     assert result.winner_id == "b2"
     assert result.all_bids == {"b1": 0, "b2": 1}
+
+
+class SlowBidder:
+    def __init__(self, buyer_id, name, bid_value, delay):
+        self.buyer_id = buyer_id
+        self.name = name
+        self.bid_value = bid_value
+        self.delay = delay
+
+    def bid(self, player, squad):
+        time.sleep(self.delay)
+        return self.bid_value
+
+
+def test_parallel_collect_bids_matches_sequential_outcome():
+    player = make_player("a", "A")
+    bidders = [
+        SlowBidder("slow", "Slow", 2, delay=0.2),
+        FixedBidder("fast", "Fast", 1),
+    ]
+    engine = AuctionEngine([player], bidders, budget=30, seed=1)
+
+    result = engine.auction_player(player)
+
+    assert result.status is AuctionStatus.SOLD
+    assert result.winner_id == "slow"
+    assert result.all_bids == {"slow": 2, "fast": 1}
+
+
+def test_parallel_collect_bids_preserves_issue_order():
+    player = make_player("a", "A")
+    bidders = [
+        FixedBidder("bad", "Bad", "10"),
+        RaisingBidder("worse", "Worse"),
+        FixedBidder("good", "Good", 1),
+    ]
+    engine = AuctionEngine([player], bidders, budget=30, seed=1)
+
+    result = engine.auction_player(player)
+
+    assert result.status is AuctionStatus.SOLD
+    assert [issue.buyer_id for issue in engine.bid_issues] == ["bad", "worse"]
+    assert [issue.code for issue in engine.bid_issues] == [
+        "invalid_type",
+        "bidder_exception",
+    ]
+    assert result.all_bids == {"bad": 0, "worse": 0, "good": 1}
+
+
+def test_parallel_collect_bids_excludes_ineligible_bidders():
+    player = make_player("p", "P")
+    bidders = [
+        DeterministicBidder("full", "Full", priority=1),
+        FixedBidder("free", "Free", 1),
+    ]
+    engine = AuctionEngine([player], bidders, budget=30, seed=1)
+    for index in range(3):
+        engine.state.squads["full"].add_player(make_player(f"old-{index}", "P"), 1)
+
+    result = engine.auction_player(player)
+
+    assert result.all_bids == {"full": 0, "free": 1}
+    assert result.winner_id == "free"
+
+
+def test_partial_report_exposes_incomplete_state():
+    player = make_player("a", "A")
+    engine = AuctionEngine(
+        [player], [FixedBidder("b1", "One", 1)], budget=500, seed=1
+    )
+
+    with pytest.raises(AuctionIncompleteError):
+        engine.run()
+
+    report = engine.partial_report()
+
+    assert report.document_type == "auction_report"
+    assert report.players_sold == 1
