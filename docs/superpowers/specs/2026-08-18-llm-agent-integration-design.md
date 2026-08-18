@@ -31,6 +31,10 @@ and checkpoint contracts do not change.
 - Prompts are in Italian; budget economy is not a hard constraint.
 - `_collect_bids` parallelizes bidder calls with `ThreadPoolExecutor`; the
   engine remains synchronous and the auction outcome is unchanged.
+- Resuming a checkpoint with `llm` buyers rebuilds the agents from an
+  auto-generated sidecar file next to the checkpoint (`checkpoint.llm.yaml`);
+  the checkpoint document and `BidderSnapshot` stay version-1 unchanged, and
+  `--resume PATH` remains the only required input.
 
 ## Components
 
@@ -38,7 +42,7 @@ and checkpoint contracts do not change.
 agents/llm_agent.py    LlmClient (shared httpx) + AgentManager (Bidder)
 agents/trace.py        TraceLogger (JSONL per-agent events)
 core/auction_manager.py  _collect_bids parallelized
-main.py                config contract + benchmark subcommand + resume guard
+main.py                config contract + benchmark subcommand + LLM resume sidecar
 benchmark/metrics.py   pure metric functions reading reports + traces
 configs/llm.yaml       example LLM configuration (mock Brave key)
 ```
@@ -280,16 +284,72 @@ per config and compare tables), a readable transcript generator (qualitative
 analysis reads the JSONL directly), retry/backoff on transient HTTP errors,
 search-result caching.
 
-## Scope boundary: resuming LLM-configured checkpoints
+## Resuming checkpoints with LLM buyers (sidecar)
 
-The version-1 checkpoint contract does not change. An LLM buyer's snapshot is
+The version-1 checkpoint contract does not change: an LLM buyer's snapshot is
 the standard `{id, name, strategy: "llm", priority}` entry (`priority`
-defaults to the buyer index, as today). Rebuilding an `AgentManager` would
-require embedding the LLM configuration in the checkpoint, which the
-unchanged contract forbids, so `--resume` on a checkpoint containing
-`strategy: "llm"` buyers fails with a clear error. This limitation is a
-roadmap item. Benchmark runs do not resume: each run is fresh and
-pool-exhaustion runs are recorded as `completed: false`.
+defaults to the buyer index, as today), and the checkpoint document contains
+no LLM configuration. To keep `--resume PATH` autonomous, `main.py` persists
+the LLM configuration in a machine-generated sidecar file next to the
+checkpoint, derived from the checkpoint path by replacing the `.json` suffix:
+`checkpoint.json` -> `checkpoint.llm.yaml`. The sidecar is written only when
+the checkpoint contains at least one `strategy: "llm"` buyer; pure
+deterministic/random resumes are unchanged. The sidecar stores the
+`api_key_env` variable *name*, never the key itself, so it contains no
+secrets and can be stored next to the checkpoint.
+
+Sidecar shape (`schema_version: 1`):
+
+```yaml
+schema_version: 1
+llm:                      # global block, copied from the loaded config
+  base_url: "https://api.openai.com/v1"
+  api_key_env: "OPENAI_API_KEY"
+  model: "gpt-4o-mini"
+  temperature: 0.7
+  timeout_seconds: 30
+  brave:
+    base_url: "https://api.search.brave.com/res/v1/web/search"
+    api_key: "..."
+buyers:                   # per-buyer blocks, only where present in the config
+  buyer_1:
+    llm:
+      model: "gpt-4o-mini"
+      role: "fantallenatore esperto"
+      spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
+```
+
+Save flow (in `main.py`'s `AuctionIncompleteError` handler): after the
+checkpoint is written, if any buyer snapshot has `strategy: "llm"`, extract
+the global `llm` block and the per-buyer `llm` blocks from the loaded config
+and write the sidecar next to the checkpoint path (including a
+`--checkpoint`-overridden destination). A failed sidecar write is reported
+clearly; the run already exits 1 on pool exhaustion.
+
+Resume flow (`--resume PATH`): if no checkpoint buyer is `llm`, the sidecar
+is ignored and the version-1 flow is unchanged. Otherwise the sidecar is
+required: a missing file is a clear pre-auction error, exit 1. The sidecar is
+shape/version checked, then merged into the buyer configs rebuilt from the
+snapshots (`buyers.<id>.llm` is attached to the matching buyer; a buyer
+without an entry uses the global defaults), and the normal `_build_bidders`
+LLM branch rebuilds the `AgentManager`s. `--config` passed with `--resume`
+remains ignored: the checkpoint (plus sidecar) is authoritative, per the P1
+rule. A missing `api_key_env` variable at resume time fails before the
+auction, as for fresh runs.
+
+If a resumed run exhausts the pool again, the new checkpoint is written and
+the sidecar is propagated next to the new path from the in-memory
+configuration. Traces of a resumed run go to a new run directory, as for
+fresh runs.
+
+Resuming an LLM auction restarts the policy from the stored configuration
+with fresh decisions; as with `RandomBidder` re-seeding in P1, a resumed run
+is not an exact replay of the interrupted one.
+
+The engine stays sidecar-agnostic: it only receives `Bidder` objects.
+
+Benchmark runs do not resume: each run is fresh and pool-exhaustion runs are
+recorded as `completed: false`.
 
 ## Error handling
 
@@ -301,7 +361,8 @@ pool-exhaustion runs are recorded as `completed: false`.
 - Iteration cap exhausted or stop without a bid -> bid 0 + `no_bid` trace.
 - HTTP/API/JSON failure -> raise; engine records `bidder_exception`, bid 0,
   auction continues.
-- `--resume` with LLM buyers -> clear error (see scope boundary).
+- `--resume` on a checkpoint with `llm` buyers and a missing or invalid
+  sidecar -> clear pre-auction error, exit 1.
 
 ## Testing (TDD)
 
@@ -315,6 +376,13 @@ pool-exhaustion runs are recorded as `completed: false`.
 - `_collect_bids` parallel version produces the same outcome as sequential,
   including issue recording (existing 103 tests) plus a smoke test with slow
   bidders asserting the final result, no timing assertions.
+- The sidecar is written next to checkpoints containing `llm` buyers and is
+  absent otherwise; its content mirrors the loaded config.
+- Resume with a valid sidecar rebuilds `AgentManager`s (fake client) and
+  completes the auction; a missing or malformed sidecar fails with a clear
+  pre-auction error.
+- A second pool exhaustion during a resumed run propagates the sidecar next
+  to the new checkpoint path.
 - `_validate_config` accepts valid LLM configs and rejects each invalid
   shape with a clear message; missing API key error is covered.
 - `benchmark/metrics.py` computed on synthetic report + trace fixtures;
@@ -336,7 +404,8 @@ pool-exhaustion runs are recorded as `completed: false`.
 - `benchmark --config --runs N` produces reports, traces, `metrics.json`,
   `metrics.csv`, and the console table; pool-exhausted runs are recorded as
   `completed: false` and the benchmark continues.
-- Report and checkpoint documents remain version-1; `--resume` with LLM
-  buyers fails with a clear error.
+- Report and checkpoint documents remain version-1; `--resume` on a
+  checkpoint with `llm` buyers continues autonomously from the sidecar, and
+  a missing sidecar fails with a clear error.
 - The full existing test suite remains green with warnings treated as
   errors.
