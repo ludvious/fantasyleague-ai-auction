@@ -18,7 +18,7 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "type": "function",
         "function": {
             "name": "search_news",
-            "description": "Cerca notizie recenti su un giocatore (infortuni, forma, mercato).",
+            "description": "Cerca notizie recenti su un giocatore (infortuni, forma, titolarità, mercato, fantacalcio).",
             "parameters": {
                 "type": "object",
                 "properties": {
