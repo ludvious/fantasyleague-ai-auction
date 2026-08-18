@@ -219,12 +219,14 @@ agents/
 
 benchmark/
   metrics.py          Pure metric functions over report JSON and trace JSONL
+  runner.py           Benchmark subcommand: N runs + metric aggregation
 
 core/
   models.py            Players, squads, bids, transactions, and reports
   auction_manager.py  Auction orchestration and auction outcomes
 
 utils/
+  config_loader.py    YAML config loading and contract validation
   excel_handler.py    Excel input validation and player loading
   json_store.py       JSON report/checkpoint persistence
   logger.py            Logging setup

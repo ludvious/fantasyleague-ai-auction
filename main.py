@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import random
 from datetime import datetime, timezone
@@ -14,207 +13,27 @@ import yaml
 from loguru import logger
 
 from agents.buyer_agent import DeterministicBidder, RandomBidder
-from agents.llm_agent import AgentManager, LlmClient, TOOL_SCHEMAS
+from agents.llm_agent import AgentManager, LlmClient
 from agents.trace import TraceLogger
-from benchmark.metrics import (
-    aggregate_metrics,
-    compute_run_metrics,
-    csv_rows,
-    print_summary_table,
-    write_metrics_csv,
-)
+from benchmark.runner import run_benchmark
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
-from core.models import BidderSnapshot, Position, SimulationSnapshot
+from core.models import BidderSnapshot, SimulationSnapshot
+from utils.config_loader import (
+    as_file_path,
+    load_config,
+    validate_global_llm,
+    validate_llm_buyer,
+)
 from utils.excel_handler import ExcelHandler
 from utils.json_store import JsonStore
 from utils.logger import setup_logger
 
 DEFAULT_CONFIG = Path("configs/default.yaml")
 
-LLM_TOOLS = set(TOOL_SCHEMAS)
-SPENDING_ROLES = {position.value for position in Position}
-SPENDING_TOLERANCE = 0.01
-
-
-def _validate_llm_buyer(llm: Any, index: int | str) -> None:
-    if not isinstance(llm, dict):
-        raise ValueError(f"'buyers[{index}].llm' must be a mapping")
-    for key in ("model", "role", "personality", "system_prompt"):
-        value = llm.get(key)
-        if value is not None and not str(value).strip():
-            raise ValueError(
-                f"'buyers[{index}].llm.{key}' must be a non-empty string"
-            )
-    temperature = llm.get("temperature")
-    if temperature is not None and (
-        isinstance(temperature, bool)
-        or not isinstance(temperature, (int, float))
-        or not 0 <= temperature <= 2
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.temperature' must be a number in [0, 2]"
-        )
-    max_tool_iterations = llm.get("max_tool_iterations")
-    if max_tool_iterations is not None and (
-        isinstance(max_tool_iterations, bool)
-        or not isinstance(max_tool_iterations, int)
-        or max_tool_iterations < 1
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1"
-        )
-    tools = llm.get("tools")
-    if tools is not None and (
-        not isinstance(tools, list)
-        or not tools
-        or not set(tools) <= LLM_TOOLS
-        or "submit_bid" not in set(tools)
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.tools' must be a non-empty subset of "
-            f"{sorted(LLM_TOOLS)} and must contain 'submit_bid'"
-        )
-    spending_profile = llm.get("spending_profile")
-    if spending_profile is not None:
-        if not isinstance(spending_profile, dict) or not spending_profile:
-            raise ValueError(
-                f"'buyers[{index}].llm.spending_profile' must be a non-empty mapping"
-            )
-        if not set(spending_profile) <= SPENDING_ROLES:
-            raise ValueError(
-                f"'buyers[{index}].llm.spending_profile' keys must be a subset "
-                f"of {sorted(SPENDING_ROLES)}"
-            )
-        shares = []
-        for role, share in spending_profile.items():
-            if (
-                isinstance(share, bool)
-                or not isinstance(share, (int, float))
-                or not 0 <= share <= 1
-            ):
-                raise ValueError(
-                    f"'buyers[{index}].llm.spending_profile.{role}' must be a "
-                    "number in [0, 1]"
-                )
-            shares.append(float(share))
-        if abs(sum(shares) - 1.0) > SPENDING_TOLERANCE:
-            raise ValueError(
-                f"'buyers[{index}].llm.spending_profile' shares must sum to 1 "
-                "(within 0.01)"
-            )
-    target_players = llm.get("target_players")
-    if target_players is not None and (
-        not isinstance(target_players, list)
-        or any(
-            not isinstance(target, str) or not target.strip()
-            for target in target_players
-        )
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.target_players' must be a list of non-empty strings"
-        )
-
-
-def _validate_global_llm(llm: Any) -> None:
-    if not isinstance(llm, dict):
-        raise ValueError("'llm' must be a mapping")
-    for key in ("base_url", "api_key_env", "model"):
-        if not str(llm.get(key, "")).strip():
-            raise ValueError(f"'llm.{key}' must be a non-empty string")
-    temperature = llm.get("temperature")
-    if temperature is not None and (
-        isinstance(temperature, bool)
-        or not isinstance(temperature, (int, float))
-        or not 0 <= temperature <= 2
-    ):
-        raise ValueError("'llm.temperature' must be a number in [0, 2]")
-    timeout_seconds = llm.get("timeout_seconds")
-    if timeout_seconds is not None and (
-        isinstance(timeout_seconds, bool)
-        or not isinstance(timeout_seconds, int)
-        or timeout_seconds < 1
-    ):
-        raise ValueError("'llm.timeout_seconds' must be an int > 0")
-    brave = llm.get("brave")
-    if not isinstance(brave, dict):
-        raise ValueError("'llm.brave' must be a mapping")
-    if brave.get("api_key") is not None:
-        raise ValueError(
-            "'llm.brave.api_key' is not supported; use 'llm.brave.api_key_env' "
-            "with the environment variable name, never the key itself"
-        )
-    for key in ("base_url", "api_key_env"):
-        if not str(brave.get(key, "")).strip():
-            raise ValueError(f"'llm.brave.{key}' must be a non-empty string")
-
 
 def _trace_run_dir(logs_dir: str | Path | None) -> Path:
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return Path(logs_dir or "logs") / "traces" / run_id
-
-
-def _load_config(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-    with path.open(encoding="utf-8") as stream:
-        config = yaml.safe_load(stream) or {}
-    if not isinstance(config, dict):
-        raise ValueError("Config root must be a mapping")
-    _validate_config(config)
-    return config
-
-
-def _validate_config(config: dict[str, Any]) -> None:
-    simulation = config.get("simulation", {})
-    paths = config.get("paths", {})
-    if not isinstance(simulation, dict):
-        raise ValueError("'simulation' must be a mapping")
-    seed = simulation.get("seed")
-    if seed is None:
-        raise ValueError("'simulation.seed' is required")
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise ValueError("'simulation.seed' must be an int")
-    budget = simulation.get("budget")
-    if budget is not None and (
-        isinstance(budget, bool) or not isinstance(budget, int) or budget < 25
-    ):
-        raise ValueError("'simulation.budget' must be an int >= 25")
-    if not isinstance(paths, dict) or not paths.get("players"):
-        raise ValueError("'paths.players' is required")
-    buyers = config.get("buyers")
-    if not isinstance(buyers, list) or not buyers:
-        raise ValueError("'buyers' must be a non-empty list")
-    for index, buyer in enumerate(buyers):
-        if not isinstance(buyer, dict):
-            raise ValueError(f"'buyers[{index}]' must be a mapping")
-        if not str(buyer.get("id", "")).strip():
-            raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
-        if not str(buyer.get("name", "")).strip():
-            raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
-        strategy = str(buyer.get("strategy", "deterministic")).lower()
-        if strategy not in ("deterministic", "random", "llm"):
-            raise ValueError(
-                f"'buyers[{index}].strategy' must be 'deterministic', 'random' or 'llm'"
-            )
-        if strategy == "llm":
-            _validate_llm_buyer(buyer.get("llm"), index)
-        priority = buyer.get("priority")
-        if priority is not None and (
-            isinstance(priority, bool) or not isinstance(priority, int)
-        ):
-            raise ValueError(f"'buyers[{index}].priority' must be an int")
-    if any(
-        str(buyer.get("strategy", "deterministic")).lower() == "llm"
-        for buyer in buyers
-    ):
-        _validate_global_llm(config.get("llm"))
-
-
-def _as_file_path(value: str | Path | None, default: Path, filename: str) -> Path:
-    if value is None:
-        return default
-    path = Path(value)
-    return path if path.suffix.lower() == ".json" else path / filename
 
 
 def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
@@ -368,13 +187,13 @@ def _load_llm_sidecar(checkpoint_path: Path) -> dict[str, Any]:
     if not isinstance(buyers, dict):
         raise ValueError(f"Invalid LLM sidecar {path}: 'buyers' must be a mapping")
     try:
-        _validate_global_llm(sidecar.get("llm"))
+        validate_global_llm(sidecar.get("llm"))
         for buyer_id, entry in buyers.items():
             if not isinstance(entry, dict):
                 raise ValueError(
                     f"'buyers.{buyer_id}' must be a mapping"
                 )
-            _validate_llm_buyer(entry.get("llm"), str(buyer_id))
+            validate_llm_buyer(entry.get("llm"), str(buyer_id))
     except ValueError as exc:
         raise ValueError(f"Invalid LLM sidecar {path}: {exc}") from exc
     return sidecar
@@ -400,94 +219,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_benchmark(args: argparse.Namespace) -> int:
-    if args.runs < 1:
-        logger.error("--runs must be an int >= 1")
-        return 1
-    config = _load_config(args.config)
-    simulation = config.get("simulation", {})
-    paths = config.get("paths", {})
-    logging_config = config.get("logging", {})
-    setup_logger(
-        log_level=str(logging_config.get("level", "INFO")),
-        log_dir=str(paths.get("logs", "logs")),
-        log_to_file=bool(logging_config.get("log_to_file", False)),
-    )
-    players = ExcelHandler(Path(paths["players"])).load_players()
-    base_seed = args.seed if args.seed is not None else int(simulation["seed"])
-    budget = int(simulation.get("budget", 500))
-    buyer_configs = list(config.get("buyers", []))
-    llm_config = config.get("llm")
-
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    root = (
-        Path(args.output)
-        if args.output is not None
-        else Path("data/benchmarks") / run_id
-    )
-    if args.output is not None:
-        run_id = root.name
-
-    store = JsonStore()
-    run_records = []
-    for index in range(args.runs):
-        run_name = f"run_{index + 1:03d}"
-        run_dir = root / run_name
-        seed_i = base_seed + index
-        # Players are loaded once; deep copies keep runs independent.
-        engine = AuctionEngine(
-            [player.model_copy(deep=True) for player in players],
-            _build_bidders(
-                buyer_configs,
-                seed_i,
-                llm_config=llm_config,
-                run_dir=run_dir / "traces",
-            ),
-            budget=budget,
-            seed=seed_i,
-        )
-        completed = True
-        try:
-            report = engine.run()
-        except AuctionIncompleteError:
-            report = engine.partial_report()
-            completed = False
-        store.save_document(report, run_dir / "report.json")
-        run_records.append(
-            {
-                "run": run_name,
-                "seed": seed_i,
-                "completed": completed,
-                "buyers": compute_run_metrics(
-                    report.model_dump(mode="json"), buyer_configs, run_dir / "traces"
-                ),
-            }
-        )
-        logger.info("Benchmark run {} completed={}", run_name, completed)
-
-    aggregates = aggregate_metrics([record["buyers"] for record in run_records])
-    document = {
-        "schema_version": 1,
-        "run_id": run_id,
-        "config": str(args.config),
-        "runs": run_records,
-        "aggregates": aggregates,
-    }
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "metrics.json").write_text(
-        json.dumps(document, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    write_metrics_csv(root / "metrics.csv", csv_rows(run_records))
-    print_summary_table(aggregates)
-    logger.success("Benchmark complete: {}", root)
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "benchmark":
-        return _run_benchmark(args)
+        return run_benchmark(args, _build_bidders)
     engine: AuctionEngine | None = None
     simulation_snapshot: SimulationSnapshot | None = None
     buyer_snapshots: list[BidderSnapshot] | None = None
@@ -521,18 +256,18 @@ def main(argv: list[str] | None = None) -> int:
                 run_dir=_trace_run_dir(None),
             )
             engine = AuctionEngine.from_checkpoint(source, bidders)
-            output_path = _as_file_path(
+            output_path = as_file_path(
                 args.output,
                 Path("data/results/report.json"),
                 "report.json",
             )
-            checkpoint_path = _as_file_path(
+            checkpoint_path = as_file_path(
                 args.checkpoint,
                 args.resume,
                 "checkpoint.json",
             )
         else:
-            config = _load_config(args.config)
+            config = load_config(args.config)
             simulation = config.get("simulation", {})
             paths = config.get("paths", {})
             logging_config = config.get("logging", {})
@@ -545,12 +280,12 @@ def main(argv: list[str] | None = None) -> int:
             budget = int(simulation.get("budget", 500))
             seed = args.seed if args.seed is not None else simulation["seed"]
             players_path = args.players or Path(paths["players"])
-            output_path = _as_file_path(
+            output_path = as_file_path(
                 args.output or paths.get("output"),
                 Path("data/results/report.json"),
                 "report.json",
             )
-            checkpoint_path = _as_file_path(
+            checkpoint_path = as_file_path(
                 args.checkpoint or paths.get("checkpoint"),
                 Path("data/checkpoints/checkpoint.json"),
                 "checkpoint.json",
