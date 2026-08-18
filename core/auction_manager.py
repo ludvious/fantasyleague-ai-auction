@@ -336,6 +336,10 @@ class AuctionEngine:
             bid_issues=[issue.model_copy(deep=True) for issue in self.bid_issues],
         )
 
+    def partial_report(self) -> SimulationReport:
+        """Project the current state into a report even when the run is incomplete."""
+        return self._report()
+
     def build_checkpoint(
         self,
         simulation: SimulationSnapshot,
