@@ -2,9 +2,11 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 import main as cli_module
+from agents.llm_agent import MOCK_BRAVE_KEY
 from checkpoint_fixtures import make_pool_exhaustion_checkpoint
 from core.models import Position
 from main import main
@@ -508,7 +510,7 @@ def test_cli_rejects_unknown_strategy(tmp_path, monkeypatch):
 
     assert main(["--config", str(config)]) == 1
     assert any(
-        "'buyers[0].strategy' must be 'deterministic' or 'random'" in error
+        "'buyers[0].strategy' must be 'deterministic', 'random' or 'llm'" in error
         for error in errors
     )
 
@@ -622,3 +624,202 @@ def test_default_config_satisfies_contract():
 def test_legacy_root_config_removed():
     repo_root = Path(__file__).resolve().parent.parent
     assert not repo_root.joinpath("config.yaml").exists()
+
+
+class FakeLlmClient:
+    """Scripted LlmClient replacement for CLI tests (no network)."""
+
+    def __init__(
+        self,
+        base_url,
+        api_key,
+        brave_base_url,
+        brave_api_key,
+        timeout_seconds=30,
+        transport=None,
+    ):
+        self.calls = 0
+
+    def chat(self, messages, tools, model, temperature):
+        self.calls += 1
+        return {
+            "content": "",
+            "tool_calls": [
+                {"id": "call_1", "name": "submit_bid", "args": {"amount": 1}}
+            ],
+            "finish_reason": "tool_calls",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+
+    def search_news(self, query, count):
+        return "search non disponibile"
+
+
+def base_llm_config(workbook: Path) -> dict:
+    return {
+        "simulation": {"budget": 500, "seed": 42},
+        "paths": {"players": str(workbook)},
+        "llm": {
+            "base_url": "https://api.test/v1",
+            "api_key_env": "TEST_LLM_API_KEY",
+            "model": "gpt-4o-mini",
+            "temperature": 0.7,
+            "timeout_seconds": 30,
+            "brave": {
+                "base_url": "https://api.search.brave.com/res/v1/web/search",
+                "api_key": MOCK_BRAVE_KEY,
+            },
+        },
+        "buyers": [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {}}],
+    }
+
+
+def test_cli_llm_run_completes_with_fake_client(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    data = base_llm_config(workbook)
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
+
+    exit_code = main(["--config", str(config), "--output", str(report)])
+
+    assert exit_code == 0
+    report_data = json.loads(report.read_text(encoding="utf-8"))
+    assert report_data["players_sold"] == 25
+    traces = list((tmp_path / "logs" / "traces").glob("*/b1.jsonl"))
+    assert len(traces) == 1
+    lines = traces[0].read_text(encoding="utf-8").splitlines()
+    assert sum(
+        json.loads(line)["phase"] == "bid" for line in lines
+    ) == 25
+
+
+def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
+    monkeypatch.delenv("TEST_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(config, base_llm_config(workbook))
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("TEST_LLM_API_KEY" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("buyers_override", "message"),
+    [
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm"}],
+            "'buyers[0].llm' must be a mapping",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"temperature": "hot"}}],
+            "'buyers[0].llm.temperature' must be a number in [0, 2]",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"temperature": 2.5}}],
+            "'buyers[0].llm.temperature' must be a number in [0, 2]",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"max_tool_iterations": 0}}],
+            "'buyers[0].llm.max_tool_iterations' must be an int >= 1",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["search_news"]}}],
+            "must contain 'submit_bid'",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["submit_bid", "mystery"]}}],
+            "must be a non-empty subset",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": []}}],
+            "must be a non-empty subset",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": 0.5, "D": 0.5, "C": 0.5, "A": 0.5}}}],
+            "must sum to 1",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": 0.5, "X": 0.5}}}],
+            "keys must be a subset",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": -0.1, "D": 0.2, "C": 0.4, "A": 0.5}}}],
+            "must be a number in [0, 1]",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"target_players": ["Lautaro", ""]}}],
+            "list of non-empty strings",
+        ),
+    ],
+)
+def test_cli_rejects_invalid_buyer_llm_block(monkeypatch, tmp_path, buyers_override, message):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["buyers"] = buyers_override
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any(message in error for error in errors)
+
+
+def test_cli_llm_buyer_requires_global_llm_block(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data.pop("llm")
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm' must be a mapping" in error for error in errors)
+
+
+def test_cli_rejects_empty_llm_base_url(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["llm"]["base_url"] = ""
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm.base_url' must be a non-empty string" in error for error in errors)
+
+
+def test_cli_rejects_missing_brave_block(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["llm"].pop("brave")
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm.brave' must be a mapping" in error for error in errors)
+
+
+def test_cli_rejects_zero_timeout(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["llm"]["timeout_seconds"] = 0
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm.timeout_seconds' must be an int > 0" in error for error in errors)
