@@ -59,6 +59,12 @@ The output directories are created automatically when needed.
 --checkpoint PATH   Override the checkpoint path or directory
 --resume PATH       Resume from a pool-exhaustion checkpoint
 --seed INTEGER      Override the configured random seed
+
+benchmark           Run multiple auctions and aggregate per-agent metrics
+  --config PATH     YAML configuration file (default: configs/default.yaml)
+  --runs N          Number of runs (default: 5)
+  --seed INTEGER    Seed of run 1; run i uses seed + i (0-based)
+  --output PATH     Benchmark output directory
 ```
 
 For example:
@@ -105,3 +111,79 @@ The process returns `0` after a complete auction and `1` for pool exhaustion,
 configuration errors, invalid checkpoint data, file errors, or unexpected
 auction errors. Only pool exhaustion writes a resumable checkpoint; other
 failures do not write one.
+
+## LLM bidders
+
+`configs/llm.yaml` is the example configuration for LLM-driven bidders. It
+adds a global `llm` block and a per-buyer `llm` block:
+
+```yaml
+llm:
+  base_url: "https://api.openai.com/v1"
+  api_key_env: "OPENAI_API_KEY"
+  model: "gpt-4o-mini"
+  temperature: 0.7
+  timeout_seconds: 30
+  brave:
+    base_url: "https://api.search.brave.com/res/v1/web/search"
+    api_key: "INSERISCI_LA_TUA_BRAVE_API_KEY"
+
+buyers:
+  - id: "buyer_1"
+    name: "Squadra Alfa"
+    strategy: "llm"
+    llm:
+      role: "fantallenatore esperto"
+      personality: "prudente"
+      spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
+```
+
+Each `strategy: "llm"` buyer is an `AgentManager` that loops over
+OpenAI-compatible `chat` calls with the fixed tool set
+`{search_news, submit_bid}` until it returns a valid bid. The API key is read
+from the environment variable named by `llm.api_key_env` (`OPENAI_API_KEY` in
+the example); only the variable name may appear in configuration files and
+sidecars. A missing variable is a pre-auction error.
+
+`search_news` uses the Brave free tier and degrades to the tool message
+`"search non disponibile"` when the key is missing, is the mock placeholder, or
+the request fails. The `api_key` in `configs/llm.yaml` is a placeholder: replace
+it with a real Brave key or leave it to disable live search.
+
+Every LLM buyer writes one JSON object per event to
+`logs/traces/<run_dir>/<buyer_id>.jsonl`; the `<run_dir>` is chosen by the
+caller, never by the engine.
+
+### Resuming LLM checkpoints
+
+When a checkpoint contains `strategy: "llm"` buyers, the CLI writes an
+auto-generated `checkpoint.llm.yaml` sidecar next to it (`schema_version: 1`)
+with the global `llm` block and the per-buyer `llm` blocks. Resuming such a
+checkpoint requires the sidecar; a missing or invalid sidecar exits `1` before
+the auction starts. With `--resume`, the checkpoint plus sidecar are the only
+inputs: `--config` stays ignored. A second pool exhaustion propagates the
+sidecar next to the new checkpoint.
+
+## Benchmark
+
+```bash
+venv/bin/python main.py benchmark \
+  --config configs/llm.yaml \
+  --runs 2 \
+  --seed 42 \
+  --output data/benchmarks/2026-08-18/
+```
+
+Run `i` uses seed `seed + i` (0-based) and a fresh `AuctionEngine` with
+deep-copied players. The output layout is:
+
+```text
+DIR/run_NNN/report.json           per-run report
+DIR/run_NNN/traces/<buyer>.jsonl  per-run per-agent traces
+DIR/metrics.json                  run records + aggregates
+DIR/metrics.csv                   one row per buyer per run
+```
+
+Pool exhaustion inside a run saves the partial report and records
+`completed: false`; the benchmark continues with the next run and never
+resumes. Without `--output`, the root is `data/benchmarks/<timestamp>/`.

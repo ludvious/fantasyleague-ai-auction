@@ -35,12 +35,39 @@ int, `simulation.budget` int ≥ 25, non-empty `buyers` list with valid
 `tests/test_cli.py` covers the contract without moving CLI concerns into the
 domain.
 
+### P3 — LLM agent integration (complete)
+
+- LLM-driven bidders (`AgentManager`) implementing the `Bidder` protocol via
+  an OpenAI-compatible function-calling loop over the fixed tool set
+  `{search_news, submit_bid}`;
+- one shared thread-safe `LlmClient` (httpx) per run;
+- per-agent JSONL trace logs under `logs/traces/<run_dir>/<buyer_id>.jsonl`;
+- parallel bid collection with a per-call thread pool (`_collect_bids`),
+  keeping validation and issue ordering identical to the sequential path;
+- `benchmark` CLI subcommand with pure metrics (`metrics.json`,
+  `metrics.csv`, console table) and `completed: false` for exhausted runs;
+- sidecar-based resume: `checkpoint.llm.yaml` written next to checkpoints
+  with `llm` buyers, required and authoritative on `--resume`, propagated on
+  a second exhaustion;
+- configuration contract extended with the global `llm` block and per-buyer
+  `llm` blocks (temperature, max tool iterations, tools, spending profile,
+  target players); API keys read from `api_key_env`, never stored in files.
+
+Explicitly deferred:
+
+- opponent state in the LLM context (input is the auctioned player plus the
+  agent's own squad/budget/`max_bid_allowed`);
+- real MCP tool integration (tools are fixed function schemas);
+- retry/backoff for LLM calls (exceptions are traced and re-raised);
+- search-result caching;
+- multi-config comparison in one benchmark command;
+- readable transcript generator from the JSONL traces.
+
 ## Explicitly out of scope for now
 
 The following must not be introduced without an explicit architectural
 decision:
 
-- LLM integration, prompts, or external model providers;
 - full event-sourced replay or arbitrary mid-auction resume; P1 resumes only
   from pool-exhaustion checkpoints between auction rounds;
 - event sourcing or asynchronous bidding;

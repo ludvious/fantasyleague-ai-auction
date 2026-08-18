@@ -8,7 +8,7 @@ adapters.
 
 ## Current status
 
-The deterministic auction MVP is implemented and P1 and P2 are complete:
+The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
 
 - strict bid validation is centralized in `Squad`;
 - invalid bidder output and bidder exceptions are isolated and recorded as
@@ -16,11 +16,20 @@ The deterministic auction MVP is implemented and P1 and P2 are complete:
 - canonical player resolution prevents external player copies from mutating
   auction state;
 - reports and checkpoints use version-1 typed JSON contracts;
-- pool-exhaustion checkpoints are autonomous and resume with `--resume`.
+- pool-exhaustion checkpoints are autonomous and resume with `--resume`;
+- LLM-driven bidders (`AgentManager`) loop over OpenAI-compatible
+  function-calling until a valid `submit_bid` arrives, with per-agent JSONL
+  traces under `logs/traces/`;
+- bids are collected in parallel with a per-call thread pool while validation
+  and issue recording stay sequential in bidder order;
+- checkpoints containing `llm` buyers save a `checkpoint.llm.yaml` sidecar and
+  resume from it;
+- the `benchmark` subcommand runs multiple auctions and aggregates pure
+  per-agent metrics into `metrics.json`, `metrics.csv`, and a console table.
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **103 tests passed**;
+- `venv/bin/pytest -q -W error`: **161 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
@@ -62,7 +71,7 @@ and continues with the remaining bidders.
 ## Configuration
 
 `configs/default.yaml` is the active default configuration. Bidders support
-the `deterministic` and `random` strategies:
+the `deterministic`, `random`, and `llm` strategies:
 
 ```yaml
 simulation:
@@ -82,6 +91,8 @@ buyers:
 `DeterministicBidder` produces a stable priority-based bid. `RandomBidder`
 uses an injected seeded random generator and can return zero. Neither bidder
 mutates the squad or player; the domain validates and applies purchases.
+`configs/llm.yaml` is the example configuration for LLM-driven bidders; see
+the contract table below.
 
 ### Configuration contract
 
@@ -96,9 +107,23 @@ reads these fields:
 | `paths` | `output` | no | report path or directory |
 | `paths` | `checkpoint` | no | checkpoint path or directory |
 | `paths` | `logs` | no | log directory, default `logs` |
-| `buyers` | list | yes | non-empty; each entry has `id`, `name`, `strategy` (`deterministic` or `random`, default `deterministic`), `priority` (default: list index) |
+| `buyers` | list | yes | non-empty; each entry has `id`, `name`, `strategy` (`deterministic`, `random` or `llm`, default `deterministic`), `priority` (default: list index), and `llm` (required mapping when `strategy: "llm"`) |
+| `llm` | `base_url` | yes* | non-empty string, OpenAI-compatible endpoint |
+| `llm` | `api_key_env` | yes* | environment variable name holding the API key; the key itself never appears in config files |
+| `llm` | `model` | yes* | model name passed to the chat API |
+| `llm` | `temperature` | no | number in `[0, 2]`, default `0.7` |
+| `llm` | `timeout_seconds` | no | int > 0, default `30` |
+| `llm` | `brave` | yes* | mapping with non-empty `base_url` and `api_key` (placeholder allowed: search degrades gracefully) |
+| `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
+| `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
+| `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `8` |
+| `buyers[].llm` | `tools` | no | non-empty subset of `{search_news, submit_bid}` containing `submit_bid`; default: both |
+| `buyers[].llm` | `spending_profile` | no | mapping role → share in `[0, 1]`, keys ⊆ `{P, D, C, A}`, shares sum to 1 (± 0.01); used only by metrics (absent → uniform target) |
+| `buyers[].llm` | `target_players` | no | list of non-empty strings |
 | `logging` | `level` | no | default `INFO` |
 | `logging` | `log_to_file` | no | default `false` |
+
+*Required only when at least one buyer has `strategy: "llm"`.
 
 Unknown sections and fields are ignored. Precedence:
 
@@ -106,11 +131,12 @@ Unknown sections and fields are ignored. Precedence:
   corresponding YAML values;
 - `--config` replaces `configs/default.yaml` entirely, without merging;
 - with `--resume`, the checkpoint snapshots are authoritative: YAML, the
-  Excel workbook, and `--seed` are ignored.
+  Excel workbook, and `--seed` are ignored; when the checkpoint has `llm`
+  buyers, the `checkpoint.llm.yaml` sidecar next to it supplies the LLM
+  configuration and is required.
 
 The legacy root `config.yaml` (pre-MVP, with `budget_iniziale`, `database`,
-`checkpoints`, `llm`, and `auction` sections) has been removed. The future
-LLM/personality configuration is tracked in `docs/roadmap.md`.
+`checkpoints`, `llm`, and `auction` sections) has been removed.
 
 ## Input and output
 
@@ -157,12 +183,42 @@ pool exhaustion creates a resumable checkpoint. Configuration errors, invalid
 checkpoint data, file errors, and unexpected engine errors return failure
 without writing one.
 
+### Traces and the LLM sidecar
+
+Every `llm` buyer writes one JSON object per event (context, llm_call, usage,
+tool_call, tool_result, bid, no_bid, error, ...) to
+`logs/traces/<run_dir>/<buyer_id>.jsonl`, flushed immediately. The `<run_dir>`
+is chosen by the caller (`main.py` or `benchmark`), never by the engine; each
+invocation uses a fresh timestamped directory.
+
+On pool exhaustion with at least one `llm` buyer, the CLI writes
+`<checkpoint>.llm.yaml` next to the checkpoint (`schema_version: 1`) with the
+global `llm` block and per-buyer `llm` blocks (only where configured; the
+`api_key_env` variable name, never the key itself). Resuming a checkpoint with
+`llm` buyers requires a valid sidecar: missing or malformed sidecars exit `1`
+before the auction. A second exhaustion propagates the sidecar next to the new
+checkpoint. Checkpoints without `llm` buyers never write one.
+
+### Benchmark output
+
+The `benchmark` subcommand writes `DIR/run_NNN/report.json`,
+`DIR/run_NNN/traces/<buyer_id>.jsonl`, `DIR/metrics.json` (run records plus
+aggregates), and `DIR/metrics.csv` (one row per buyer per run), and prints a
+console summary table. Run `i` uses seed `seed + i` (0-based) with a fresh
+engine and deep-copied players; pool exhaustion inside a run saves the partial
+report with `completed: false` and the benchmark continues.
+
 ## Project structure
 
 ```text
 agents/
   base_agent.py       Bidder protocol
   buyer_agent.py      DeterministicBidder and RandomBidder
+  trace.py            TraceLogger: per-agent JSONL events
+  llm_agent.py        LlmClient (shared httpx) and AgentManager (Bidder)
+
+benchmark/
+  metrics.py          Pure metric functions over report JSON and trace JSONL
 
 core/
   models.py            Players, squads, bids, transactions, and reports
@@ -176,6 +232,7 @@ utils/
 
 configs/
   default.yaml        Active default simulation configuration
+  llm.yaml            Example LLM-driven auction configuration
 
 data/
   *.xlsx              Player source workbook
@@ -196,12 +253,6 @@ venv/bin/pytest -q -W error
 The test suite covers roster invariants, strict bid validation, invalid and
 raising bidders, tie and no-bid outcomes, deterministic and random bidder
 behavior, canonical players, Excel schema handling, JSON persistence, pool
-exhaustion, configuration contract validation, and CLI success/failure paths.
-
-
-## TODO / debito tecnico
-
-1. **Configurazione LLM per agenti AI.** Reintrodurre le sezioni `llm` e
-   `buyers[].personality` con design dedicato quando la roadmap approverà gli
-   agenti AI; i campi storici sono registrati in `docs/roadmap.md` e nella
-   storia git.
+exhaustion, configuration contract validation, LLM configuration validation,
+sidecar save/resume flows, trace logging, the LLM function-calling loop,
+parallel bid collection, benchmark metrics, and CLI success/failure paths.
