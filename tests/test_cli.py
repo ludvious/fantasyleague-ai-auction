@@ -823,3 +823,156 @@ def test_cli_rejects_zero_timeout(monkeypatch, tmp_path):
 
     assert main(["--config", str(config)]) == 1
     assert any("'llm.timeout_seconds' must be an int > 0" in error for error in errors)
+
+
+def llm_sidecar_payload() -> dict:
+    return {
+        "schema_version": 1,
+        "llm": {
+            "base_url": "https://api.test/v1",
+            "api_key_env": "TEST_LLM_API_KEY",
+            "model": "gpt-4o-mini",
+            "temperature": 0.7,
+            "timeout_seconds": 30,
+            "brave": {
+                "base_url": "https://api.search.brave.com/res/v1/web/search",
+                "api_key": MOCK_BRAVE_KEY,
+            },
+        },
+        "buyers": {
+            "incomplete": {"llm": {"temperature": 0.3}},
+        },
+    }
+
+
+def test_cli_llm_exhaustion_writes_checkpoint_and_sidecar(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(config, base_llm_config(workbook))
+
+    exit_code = main([
+        "--config", str(config),
+        "--checkpoint", str(checkpoint),
+    ])
+
+    assert exit_code == 1
+    sidecar = tmp_path / "checkpoint.llm.yaml"
+    assert sidecar.exists()
+    data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+    assert data["schema_version"] == 1
+    assert data["llm"]["model"] == "gpt-4o-mini"
+    assert data["llm"]["api_key_env"] == "TEST_LLM_API_KEY"
+    assert "sk-" not in sidecar.read_text(encoding="utf-8")
+    # b1 has no per-buyer block in the config, so none is written
+    assert data["buyers"] == {}
+
+
+def test_cli_deterministic_exhaustion_writes_no_sidecar(tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_config(
+        config,
+        workbook,
+        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+    )
+
+    assert main(["--config", str(config), "--checkpoint", str(checkpoint)]) == 1
+    assert checkpoint.exists()
+    assert not (tmp_path / "checkpoint.llm.yaml").exists()
+
+
+def make_llm_checkpoint(tmp_path, *, no_progress: bool = False) -> Path:
+    checkpoint = make_checkpoint_file(tmp_path, no_progress=no_progress)
+    data = json.loads(checkpoint.read_text(encoding="utf-8"))
+    data["buyers"] = [
+        {"id": "complete", "name": "Complete", "strategy": "deterministic", "priority": 0},
+        {"id": "incomplete", "name": "Incomplete", "strategy": "llm", "priority": 1},
+    ]
+    checkpoint.write_text(json.dumps(data), encoding="utf-8")
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(llm_sidecar_payload()), encoding="utf-8"
+    )
+    return checkpoint
+
+
+def test_cli_resumes_llm_checkpoint_with_sidecar(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    monkeypatch.setattr(
+        cli_module, "_trace_run_dir", lambda logs_dir=None: tmp_path / "traces" / "resume"
+    )
+    checkpoint = make_llm_checkpoint(tmp_path)
+    report = tmp_path / "report.json"
+
+    exit_code = main([
+        "--resume", str(checkpoint),
+        "--config", str(tmp_path / "missing.yaml"),
+        "--output", str(report),
+    ])
+
+    assert exit_code == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["players_sold"] == data["total_players"]
+    assert (tmp_path / "traces" / "resume" / "incomplete.jsonl").exists()
+
+
+def test_cli_resume_llm_without_sidecar_fails(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    checkpoint = make_llm_checkpoint(tmp_path)
+    (tmp_path / "checkpoint.llm.yaml").unlink()
+    report = tmp_path / "report.json"
+    errors = capture_log_errors(monkeypatch)
+
+    exit_code = main(["--resume", str(checkpoint), "--output", str(report)])
+
+    assert exit_code == 1
+    assert not report.exists()
+    assert any("sidecar" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"schema_version": 2, "llm": llm_sidecar_payload()["llm"]},
+        [1, 2, 3],
+        {"schema_version": 1},
+    ],
+)
+def test_cli_resume_llm_with_malformed_sidecar_fails(monkeypatch, tmp_path, payload):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    checkpoint = make_llm_checkpoint(tmp_path)
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(payload), encoding="utf-8"
+    )
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--resume", str(checkpoint)]) == 1
+    assert any("sidecar" in error for error in errors)
+
+
+def test_cli_second_exhaustion_propagates_sidecar(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    monkeypatch.setattr(
+        cli_module, "_trace_run_dir", lambda logs_dir=None: tmp_path / "traces" / "resume"
+    )
+    checkpoint = make_llm_checkpoint(tmp_path, no_progress=True)
+
+    exit_code = main(["--resume", str(checkpoint)])
+
+    assert exit_code == 1
+    loaded = JsonStore().load_checkpoint(checkpoint)
+    assert loaded.run_number == 2
+    sidecar = tmp_path / "checkpoint.llm.yaml"
+    assert sidecar.exists()
+    data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+    assert data["schema_version"] == 1
+    assert data["buyers"]["incomplete"]["llm"] == {"temperature": 0.3}
