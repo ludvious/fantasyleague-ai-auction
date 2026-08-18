@@ -110,30 +110,6 @@ def _build_bidders(
     return bidders
 
 
-def _buyer_snapshots(configs: list[dict[str, Any]]) -> list[BidderSnapshot]:
-    return [
-        BidderSnapshot(
-            id=str(config.get("id", "")).strip(),
-            name=str(config.get("name", "")).strip(),
-            strategy=str(config.get("strategy", "deterministic")).lower(),
-            priority=int(config.get("priority", index)),
-        )
-        for index, config in enumerate(configs)
-    ]
-
-
-def _snapshot_configs(snapshots: list[BidderSnapshot]) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": snapshot.id,
-            "name": snapshot.name,
-            "strategy": snapshot.strategy,
-            "priority": snapshot.priority,
-        }
-        for snapshot in snapshots
-    ]
-
-
 def _sidecar_path(checkpoint_path: Path) -> Path:
     return checkpoint_path.with_suffix(".llm.yaml")
 
@@ -239,7 +215,15 @@ def main(argv: list[str] | None = None) -> int:
             buyer_snapshots = [
                 buyer.model_copy(deep=True) for buyer in source.buyers
             ]
-            buyer_configs = _snapshot_configs(buyer_snapshots)
+            buyer_configs = [
+                {
+                    "id": snapshot.id,
+                    "name": snapshot.name,
+                    "strategy": snapshot.strategy,
+                    "priority": snapshot.priority,
+                }
+                for snapshot in buyer_snapshots
+            ]
             llm_config = None
             if any(snapshot.strategy == "llm" for snapshot in buyer_snapshots):
                 sidecar = _load_llm_sidecar(args.resume)
@@ -301,7 +285,15 @@ def main(argv: list[str] | None = None) -> int:
                 run_dir=_trace_run_dir(paths.get("logs")),
             )
             simulation_snapshot = SimulationSnapshot(budget=budget, seed=seed)
-            buyer_snapshots = _buyer_snapshots(buyer_configs)
+            buyer_snapshots = [
+                BidderSnapshot(
+                    id=str(config.get("id", "")).strip(),
+                    name=str(config.get("name", "")).strip(),
+                    strategy=str(config.get("strategy", "deterministic")).lower(),
+                    priority=int(config.get("priority", index)),
+                )
+                for index, config in enumerate(buyer_configs)
+            ]
             engine = AuctionEngine(players, bidders, budget=budget, seed=seed)
 
         report = engine.run()

@@ -47,14 +47,13 @@ def run_benchmark(
     buyer_configs = list(config.get("buyers", []))
     llm_config = config.get("llm")
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     root = (
         Path(args.output)
         if args.output is not None
-        else Path("data/benchmarks") / run_id
+        else Path("data/benchmarks")
+        / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     )
-    if args.output is not None:
-        run_id = root.name
+    run_id = root.name
 
     store = JsonStore()
     run_records = []
