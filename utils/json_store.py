@@ -23,19 +23,10 @@ class JsonStore:
         )
         return output
 
-    def save_report(self, report: SimulationReport, path: str | Path) -> Path:
-        if not isinstance(report, SimulationReport):
-            raise TypeError("report must be a SimulationReport")
-        return self._write(report.model_dump(mode="json"), path)
-
-    def save_checkpoint(
-        self,
-        checkpoint: AuctionCheckpoint,
-        path: str | Path,
-    ) -> Path:
-        if not isinstance(checkpoint, AuctionCheckpoint):
-            raise TypeError("checkpoint must be an AuctionCheckpoint")
-        return self._write(checkpoint.model_dump(mode="json"), path)
+    def save_document(self, document: SimulationReport, path: str | Path) -> Path:
+        if not isinstance(document, SimulationReport):
+            raise TypeError("document must be a SimulationReport or AuctionCheckpoint")
+        return self._write(document.model_dump(mode="json"), path)
 
     def load_checkpoint(self, path: str | Path) -> AuctionCheckpoint:
         source = Path(path)

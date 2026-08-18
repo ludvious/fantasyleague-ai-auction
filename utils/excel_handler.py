@@ -59,14 +59,12 @@ class ExcelHandler:
             raise FileNotFoundError(f"Excel file not found: {self.filepath}")
         return pd.read_excel(self.filepath, sheet_name=self.SHEET_NAME, header=1)
 
-    def load_players(self, validate: bool = True) -> list[Player]:
+    def load_players(self) -> list[Player]:
         """Load all valid players from the real header row of the workbook."""
         logger.info("Loading players from {}", self.filepath)
         frame = self._read()
+        self.validate_schema(frame)
         data = frame.loc[:, self.REQUIRED_COLUMNS].dropna(how="any")
-
-        if validate:
-            self.validate_schema(frame)
 
         players: list[Player] = []
         for row_number, row in data.iterrows():

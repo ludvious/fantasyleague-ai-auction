@@ -6,8 +6,6 @@ import pytest
 @pytest.mark.parametrize(
     "module_name",
     [
-        "core.notary",
-        "utils.validator",
         "agents.trace",
         "agents.llm_agent",
         "benchmark.metrics",

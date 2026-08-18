@@ -80,10 +80,7 @@ def make_checkpoint() -> AuctionCheckpoint:
         missing_roles={"buyer_1": {"P": 1}},
         error_code="pool_exhausted",
         error="Player pool exhausted before roster completion",
-        resume={
-            "incomplete_buyer_ids": ["buyer_1"],
-            "pool": "unsold_players",
-        },
+        resume={"incomplete_buyer_ids": ["buyer_1"]},
     )
 
 
@@ -174,8 +171,5 @@ def make_pool_exhaustion_checkpoint() -> AuctionCheckpoint:
         missing_roles={"incomplete": {"P": 1}},
         error_code="pool_exhausted",
         error="Player pool exhausted before roster completion",
-        resume={
-            "incomplete_buyer_ids": ["incomplete"],
-            "pool": "unsold_players",
-        },
+        resume={"incomplete_buyer_ids": ["incomplete"]},
     )

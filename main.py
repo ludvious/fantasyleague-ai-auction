@@ -446,14 +446,14 @@ def _run_benchmark(args: argparse.Namespace) -> int:
         except AuctionIncompleteError:
             report = engine.partial_report()
             completed = False
-        store.save_report(report, run_dir / "report.json")
+        store.save_document(report, run_dir / "report.json")
         run_records.append(
             {
                 "run": run_name,
                 "seed": seed_i,
                 "completed": completed,
                 "buyers": compute_run_metrics(
-                    report.to_dict(), buyer_configs, run_dir / "traces"
+                    report.model_dump(mode="json"), buyer_configs, run_dir / "traces"
                 ),
             }
         )
@@ -564,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
             engine = AuctionEngine(players, bidders, budget=budget, seed=seed)
 
         report = engine.run()
-        saved = store.save_report(report, output_path)
+        saved = store.save_document(report, output_path)
         logger.success("Report saved to {}", saved)
         return 0
     except AuctionIncompleteError as exc:
@@ -577,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
             exc,
             exc.missing_roles,
         )
-        saved = store.save_checkpoint(
+        saved = store.save_document(
             checkpoint,
             checkpoint_path or Path("data/checkpoints/checkpoint.json"),
         )
