@@ -1,3 +1,25 @@
+# Configurazione di esempio per aste con bidder LLM.
+# Tutti i buyer usano strategy: llm e definiscono esplicitamente ogni campo
+# personalizzabile, cosi' puoi modificarne i valori direttamente qui.
+#
+# Uso:
+#   venv/bin/python main.py --config configs/llm.yaml
+#
+# Campi per buyer (blocco `llm`, tutti opzionali):
+#   model                 override del modello globale
+#   role                  ruolo dell'agente nel system prompt generato
+#   personality           personalita' dell'agente nel system prompt generato
+#   system_prompt         sostituisce INTERAMENTE il prompt generato; quando
+#                         presente ignora role, personality, spending_profile
+#                         e target_players (vedi esempio commentato qui sotto)
+#   temperature           creativita' (0.0 - 2.0), override del globale
+#   max_tool_iterations   cap del loop function-calling (default 3)
+#   tools                 sottoinsieme di {search_news, submit_bid}; deve
+#                         contenere submit_bid (default: entrambi)
+#   spending_profile      distribuzione di spesa ideale per ruolo
+#                         (chiavi P/D/C/A, somma 1)
+#   target_players        lista di giocatori obiettivo
+
 simulation:
   budget: 500
   seed: 42
@@ -16,32 +38,88 @@ llm:
   timeout_seconds: 30
   brave:
     base_url: "https://api.search.brave.com/res/v1/web/search"
-    api_key: "INSERISCI_LA_TUA_BRAVE_API_KEY"
+    api_key_env: "BRAVE_API_KEY"
 
 buyers:
-  - id: "buyer_1"
-    name: "Squadra Alfa"
-    strategy: "llm"
+
+  # ── Squadra Alfa ──────────────────────────────────────────────────
+  - id: buyer_1
+    name: Squadra Alfa
+    strategy: llm
     llm:
+      model: "gpt-4o-mini"
       role: "fantallenatore esperto"
       personality: "prudente"
-      spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
+      temperature: 0.7
+      max_tool_iterations: 3
+      tools: [search_news, submit_bid]
+      spending_profile:
+        P: 0.08
+        D: 0.20
+        C: 0.35
+        A: 0.37
       target_players:
         - "Lautaro Martínez"
-  - id: "buyer_2"
-    name: "Squadra Beta"
-    strategy: "llm"
+      # Prompt completamente custom (decommenta per usarlo al posto
+      # di role/personality/spending_profile/target_players):
+      # system_prompt: |
+      #   Sei un fantallenatore prudente.
+      #   Non spendere piu' di 15 crediti per un portiere.
+      #   Usa submit_bid per la tua offerta (0 = passo).
+
+  # ── Squadra Beta ──────────────────────────────────────────────────
+  - id: buyer_2
+    name: Squadra Beta
+    strategy: llm
     llm:
+      model: "gpt-4o-mini"
       role: "fantallenatore esperto"
       personality: "aggressiva"
-      spending_profile: {P: 0.05, D: 0.15, C: 0.30, A: 0.50}
-  - id: "buyer_3"
-    name: "Squadra Gamma"
-    strategy: "llm"
+      temperature: 0.9
+      max_tool_iterations: 3
+      tools: [search_news, submit_bid]
+      spending_profile:
+        P: 0.05
+        D: 0.15
+        C: 0.30
+        A: 0.50
+      target_players:
+        - "Marcus Thuram"
+
+  # ── Squadra Gamma ─────────────────────────────────────────────────
+  - id: buyer_3
+    name: Squadra Gamma
+    strategy: llm
     llm:
+      model: "gpt-4o-mini"
+      role: "fantallenatore esperto"
       personality: "equilibrata"
       temperature: 0.3
-  - id: "buyer_4"
-    name: "Squadra Delta"
-    strategy: "deterministic"
-    priority: 3
+      max_tool_iterations: 3
+      tools: [search_news, submit_bid]
+      spending_profile:
+        P: 0.06
+        D: 0.24
+        C: 0.35
+        A: 0.35
+      target_players:
+        - "Pulisic"
+
+  # ── Squadra Delta ─────────────────────────────────────────────────
+  - id: buyer_4
+    name: Squadra Delta
+    strategy: llm
+    llm:
+      model: "gpt-4o-mini"
+      role: "fantallenatore esperto"
+      personality: "opportunista"
+      temperature: 1.0
+      max_tool_iterations: 3
+      tools: [search_news, submit_bid]
+      spending_profile:
+        P: 0.07
+        D: 0.18
+        C: 0.30
+        A: 0.45
+      target_players:
+        - "Calhanoglu"
