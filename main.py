@@ -14,26 +14,25 @@ import yaml
 from loguru import logger
 
 from agents.buyer_agent import DeterministicBidder, RandomBidder
-from agents.llm_agent import AgentManager, LlmClient
+from agents.llm_agent import AgentManager, LlmClient, TOOL_SCHEMAS
 from agents.trace import TraceLogger
 from benchmark.metrics import (
     aggregate_metrics,
-    build_metrics_document,
     compute_run_metrics,
     csv_rows,
     print_summary_table,
     write_metrics_csv,
 )
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
-from core.models import BidderSnapshot, SimulationSnapshot
+from core.models import BidderSnapshot, Position, SimulationSnapshot
 from utils.excel_handler import ExcelHandler
 from utils.json_store import JsonStore
 from utils.logger import setup_logger
 
 DEFAULT_CONFIG = Path("configs/default.yaml")
 
-LLM_TOOLS = {"search_news", "submit_bid"}
-SPENDING_ROLES = {"P", "D", "C", "A"}
+LLM_TOOLS = set(TOOL_SCHEMAS)
+SPENDING_ROLES = {position.value for position in Position}
 SPENDING_TOLERANCE = 0.01
 
 
@@ -461,9 +460,13 @@ def _run_benchmark(args: argparse.Namespace) -> int:
         logger.info("Benchmark run {} completed={}", run_name, completed)
 
     aggregates = aggregate_metrics([record["buyers"] for record in run_records])
-    document = build_metrics_document(
-        run_id, str(args.config), run_records, aggregates
-    )
+    document = {
+        "schema_version": 1,
+        "run_id": run_id,
+        "config": str(args.config),
+        "runs": run_records,
+        "aggregates": aggregates,
+    }
     root.mkdir(parents=True, exist_ok=True)
     (root / "metrics.json").write_text(
         json.dumps(document, ensure_ascii=False, indent=2),

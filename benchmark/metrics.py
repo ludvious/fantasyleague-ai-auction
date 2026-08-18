@@ -8,9 +8,10 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-ROLES = ("P", "D", "C", "A")
-ROSTER_REQUIREMENTS = {"P": 3, "D": 8, "C": 8, "A": 6}
-UNIFORM_PROFILE = {"P": 0.25, "D": 0.25, "C": 0.25, "A": 0.25}
+from core.models import Position, ROSTER_REQUIREMENTS
+
+ROLES = tuple(position.value for position in Position)
+UNIFORM_PROFILE = {position.value: 0.25 for position in Position}
 
 # USD per 1M tokens (input, output); unknown models yield None.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
@@ -184,21 +185,6 @@ def aggregate_metrics(run_metrics: list[dict[str, dict]]) -> dict:
             ]
             aggregates[buyer_id][f"tools_{tool}"] = _mean_std(values)
     return aggregates
-
-
-def build_metrics_document(
-    run_id: str,
-    config_path: str,
-    run_records: list[dict],
-    aggregates: dict,
-) -> dict:
-    return {
-        "schema_version": 1,
-        "run_id": run_id,
-        "config": config_path,
-        "runs": run_records,
-        "aggregates": aggregates,
-    }
 
 
 def csv_rows(run_records: list[dict]) -> list[dict]:
