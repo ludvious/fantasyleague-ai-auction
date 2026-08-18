@@ -6,7 +6,6 @@ import pytest
 import yaml
 
 import main as cli_module
-from agents.llm_agent import MOCK_BRAVE_KEY
 from checkpoint_fixtures import make_pool_exhaustion_checkpoint
 from core.models import Position
 from main import main
@@ -667,7 +666,7 @@ def base_llm_config(workbook: Path) -> dict:
             "timeout_seconds": 30,
             "brave": {
                 "base_url": "https://api.search.brave.com/res/v1/web/search",
-                "api_key": MOCK_BRAVE_KEY,
+                "api_key_env": "TEST_BRAVE_API_KEY",
             },
         },
         "buyers": [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {}}],
@@ -812,6 +811,19 @@ def test_cli_rejects_missing_brave_block(monkeypatch, tmp_path):
     assert any("'llm.brave' must be a mapping" in error for error in errors)
 
 
+def test_cli_rejects_brave_api_key_field(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["llm"]["brave"]["api_key"] = "secret-key"
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm.brave.api_key' is not supported" in error for error in errors)
+
+
 def test_cli_rejects_zero_timeout(monkeypatch, tmp_path):
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
@@ -836,7 +848,7 @@ def llm_sidecar_payload() -> dict:
             "timeout_seconds": 30,
             "brave": {
                 "base_url": "https://api.search.brave.com/res/v1/web/search",
-                "api_key": MOCK_BRAVE_KEY,
+                "api_key_env": "TEST_BRAVE_API_KEY",
             },
         },
         "buyers": {

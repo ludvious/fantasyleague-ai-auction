@@ -113,7 +113,7 @@ reads these fields:
 | `llm` | `model` | yes* | model name passed to the chat API |
 | `llm` | `temperature` | no | number in `[0, 2]`, default `0.7` |
 | `llm` | `timeout_seconds` | no | int > 0, default `30` |
-| `llm` | `brave` | yes* | mapping with non-empty `base_url` and `api_key` (placeholder allowed: search degrades gracefully) |
+| `llm` | `brave` | yes* | mapping with non-empty `base_url` and `api_key_env` (environment variable name holding the Brave key; a missing or placeholder value disables live search); a literal `api_key` field is rejected |
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
 | `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
 | `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `3` |

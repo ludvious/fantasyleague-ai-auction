@@ -126,7 +126,7 @@ llm:
   timeout_seconds: 30
   brave:
     base_url: "https://api.search.brave.com/res/v1/web/search"
-    api_key: "INSERISCI_LA_TUA_BRAVE_API_KEY"
+    api_key_env: "BRAVE_API_KEY"
 
 buyers:
   - id: "buyer_1"
@@ -147,8 +147,10 @@ sidecars. A missing variable is a pre-auction error.
 
 `search_news` uses the Brave free tier and degrades to the tool message
 `"search non disponibile"` when the key is missing, is the mock placeholder, or
-the request fails. The `api_key` in `configs/llm.yaml` is a placeholder: replace
-it with a real Brave key or leave it to disable live search.
+the request fails. The Brave key is read from the environment variable named
+by `llm.brave.api_key_env` (`BRAVE_API_KEY` in the example); a missing or
+placeholder value disables live search. Like the LLM key, the Brave key never
+appears in configuration files or sidecars, only the variable name.
 
 Every LLM buyer writes one JSON object per event to
 `logs/traces/<run_dir>/<buyer_id>.jsonl`; the `<run_dir>` is chosen by the

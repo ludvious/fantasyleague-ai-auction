@@ -138,7 +138,12 @@ def _validate_global_llm(llm: Any) -> None:
     brave = llm.get("brave")
     if not isinstance(brave, dict):
         raise ValueError("'llm.brave' must be a mapping")
-    for key in ("base_url", "api_key"):
+    if brave.get("api_key") is not None:
+        raise ValueError(
+            "'llm.brave.api_key' is not supported; use 'llm.brave.api_key_env' "
+            "with the environment variable name, never the key itself"
+        )
+    for key in ("base_url", "api_key_env"):
         if not str(brave.get(key, "")).strip():
             raise ValueError(f"'llm.brave.{key}' must be a non-empty string")
 
@@ -221,11 +226,12 @@ def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
             "set it before running an auction with LLM bidders"
         )
     brave = llm_config.get("brave") or {}
+    brave_api_key = os.environ.get(str(brave.get("api_key_env", "")), "")
     return LlmClient(
         base_url=str(llm_config["base_url"]),
         api_key=api_key,
         brave_base_url=str(brave["base_url"]),
-        brave_api_key=str(brave["api_key"]),
+        brave_api_key=brave_api_key,
         timeout_seconds=int(llm_config.get("timeout_seconds", 30)),
     )
 
