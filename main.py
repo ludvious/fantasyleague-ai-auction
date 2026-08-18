@@ -274,7 +274,7 @@ def _build_bidders(
                     role=merged.get("role"),
                     personality=merged.get("personality"),
                     system_prompt=merged.get("system_prompt"),
-                    max_tool_iterations=int(merged.get("max_tool_iterations", 8)),
+                    max_tool_iterations=int(merged.get("max_tool_iterations", 3)),
                     tools=tuple(merged.get("tools", AgentManager.DEFAULT_TOOLS)),
                     spending_profile=merged.get("spending_profile"),
                     target_players=merged.get("target_players"),

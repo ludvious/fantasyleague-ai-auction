@@ -164,7 +164,7 @@ class AgentManager:
         role: str | None = None,
         personality: str | None = None,
         system_prompt: str | None = None,
-        max_tool_iterations: int = 8,
+        max_tool_iterations: int = 3,
         tools: tuple[str, ...] = DEFAULT_TOOLS,
         spending_profile: dict[str, float] | None = None,
         target_players: list[str] | None = None,

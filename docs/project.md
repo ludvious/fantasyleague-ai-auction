@@ -116,7 +116,7 @@ reads these fields:
 | `llm` | `brave` | yes* | mapping with non-empty `base_url` and `api_key` (placeholder allowed: search degrades gracefully) |
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
 | `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
-| `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `8` |
+| `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `3` |
 | `buyers[].llm` | `tools` | no | non-empty subset of `{search_news, submit_bid}` containing `submit_bid`; default: both |
 | `buyers[].llm` | `spending_profile` | no | mapping role → share in `[0, 1]`, keys ⊆ `{P, D, C, A}`, shares sum to 1 (± 0.01); used only by metrics (absent → uniform target) |
 | `buyers[].llm` | `target_players` | no | list of non-empty strings |
