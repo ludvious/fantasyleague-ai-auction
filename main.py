@@ -16,6 +16,14 @@ from loguru import logger
 from agents.buyer_agent import DeterministicBidder, RandomBidder
 from agents.llm_agent import AgentManager, LlmClient
 from agents.trace import TraceLogger
+from benchmark.metrics import (
+    aggregate_metrics,
+    build_metrics_document,
+    compute_run_metrics,
+    csv_rows,
+    print_summary_table,
+    write_metrics_csv,
+)
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
 from core.models import BidderSnapshot, SimulationSnapshot
 from utils.excel_handler import ExcelHandler
@@ -375,11 +383,102 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--seed", type=int)
+    subparsers = parser.add_subparsers(dest="command")
+    benchmark_parser = subparsers.add_parser(
+        "benchmark",
+        help="Run multiple auctions and aggregate per-agent metrics",
+    )
+    benchmark_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    benchmark_parser.add_argument("--runs", type=int, default=5)
+    benchmark_parser.add_argument("--seed", type=int)
+    benchmark_parser.add_argument("--output", type=Path)
     return parser
+
+
+def _run_benchmark(args: argparse.Namespace) -> int:
+    if args.runs < 1:
+        logger.error("--runs must be an int >= 1")
+        return 1
+    config = _load_config(args.config)
+    simulation = config.get("simulation", {})
+    paths = config.get("paths", {})
+    logging_config = config.get("logging", {})
+    setup_logger(
+        log_level=str(logging_config.get("level", "INFO")),
+        log_dir=str(paths.get("logs", "logs")),
+        log_to_file=bool(logging_config.get("log_to_file", False)),
+    )
+    players = ExcelHandler(Path(paths["players"])).load_players()
+    base_seed = args.seed if args.seed is not None else int(simulation["seed"])
+    budget = int(simulation.get("budget", 500))
+    buyer_configs = list(config.get("buyers", []))
+    llm_config = config.get("llm")
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    root = (
+        Path(args.output)
+        if args.output is not None
+        else Path("data/benchmarks") / run_id
+    )
+    if args.output is not None:
+        run_id = root.name
+
+    store = JsonStore()
+    run_records = []
+    for index in range(args.runs):
+        run_name = f"run_{index + 1:03d}"
+        run_dir = root / run_name
+        seed_i = base_seed + index
+        # Players are loaded once; deep copies keep runs independent.
+        engine = AuctionEngine(
+            [player.model_copy(deep=True) for player in players],
+            _build_bidders(
+                buyer_configs,
+                seed_i,
+                llm_config=llm_config,
+                run_dir=run_dir / "traces",
+            ),
+            budget=budget,
+            seed=seed_i,
+        )
+        completed = True
+        try:
+            report = engine.run()
+        except AuctionIncompleteError:
+            report = engine.partial_report()
+            completed = False
+        store.save_report(report, run_dir / "report.json")
+        run_records.append(
+            {
+                "run": run_name,
+                "seed": seed_i,
+                "completed": completed,
+                "buyers": compute_run_metrics(
+                    report.to_dict(), buyer_configs, run_dir / "traces"
+                ),
+            }
+        )
+        logger.info("Benchmark run {} completed={}", run_name, completed)
+
+    aggregates = aggregate_metrics([record["buyers"] for record in run_records])
+    document = build_metrics_document(
+        run_id, str(args.config), run_records, aggregates
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "metrics.json").write_text(
+        json.dumps(document, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_metrics_csv(root / "metrics.csv", csv_rows(run_records))
+    print_summary_table(aggregates)
+    logger.success("Benchmark complete: {}", root)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "benchmark":
+        return _run_benchmark(args)
     engine: AuctionEngine | None = None
     simulation_snapshot: SimulationSnapshot | None = None
     buyer_snapshots: list[BidderSnapshot] | None = None
