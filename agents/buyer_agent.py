@@ -20,10 +20,6 @@ class DeterministicBidder:
         self.priority = priority
 
     def bid(self, player: Player, squad: Squad) -> int:
-        if squad.buyer_id != self.buyer_id:
-            return 0
-        if squad.remaining_for(player.position) == 0:
-            return 0
         return min(squad.max_bid_allowed, self.priority + 1)
 
 
@@ -38,8 +34,4 @@ class RandomBidder:
         self.rng = rng
 
     def bid(self, player: Player, squad: Squad) -> int:
-        if squad.buyer_id != self.buyer_id:
-            return 0
-        if squad.remaining_for(player.position) == 0:
-            return 0
         return self.rng.randint(0, squad.max_bid_allowed)

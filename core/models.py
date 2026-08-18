@@ -52,9 +52,6 @@ class Player(BaseModel):
     buyer_id: Optional[str] = None
     selling_price: Optional[int] = Field(default=None, ge=1)
 
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
-
 
 class Squad(BaseModel):
     """A manager's roster, budget, and role constraints."""
@@ -155,9 +152,6 @@ class Squad(BaseModel):
         self.players.append(player.model_copy(deep=True))
         self.budget_remaining -= price
 
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
-
 
 class AuctionStatus(str, Enum):
     SOLD = "venduto"
@@ -173,9 +167,6 @@ class BidIssue(BaseModel):
     buyer_id: str
     code: str
     message: str
-
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
 
 
 class BidderSnapshot(BaseModel):
@@ -198,7 +189,6 @@ class ResumeMetadata(BaseModel):
     """Metadata describing the next pool available to a resumed run."""
 
     incomplete_buyer_ids: list[str] = Field(min_length=1)
-    pool: Literal["unsold_players"] = "unsold_players"
 
 
 class AuctionResult(BaseModel):
@@ -216,18 +206,12 @@ class AuctionResult(BaseModel):
     def num_bidders(self) -> int:
         return sum(bid > 0 for bid in self.all_bids.values())
 
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
-
 
 class Transaction(BaseModel):
     player: Player
     buyer_id: str
     price: int = Field(ge=1)
     all_bids: dict[str, int] = Field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
 
 
 class AuctionState(BaseModel):
@@ -247,9 +231,6 @@ class AuctionState(BaseModel):
     @property
     def available_players(self) -> list[Player]:
         return [player for player in self.players if player.status is PlayerStatus.AVAILABLE]
-
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
 
 
 class SimulationReport(BaseModel):
@@ -277,9 +258,6 @@ class SimulationReport(BaseModel):
     @property
     def max_price(self) -> int:
         return max((transaction.price for transaction in self.transactions), default=0)
-
-    def to_dict(self) -> dict:
-        return self.model_dump(mode="json")
 
 
 class AuctionCheckpoint(SimulationReport):

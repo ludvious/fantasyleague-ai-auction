@@ -1,12 +1,7 @@
 pydantic
-pydantic-settings
 pandas
 openpyxl
-rich
-python-dotenv
 pyyaml
-requests
 httpx
 pytest
-pytest-asyncio
 loguru

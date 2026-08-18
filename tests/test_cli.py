@@ -55,7 +55,7 @@ def make_checkpoint_file(tmp_path: Path, *, no_progress: bool = False) -> Path:
         checkpoint.players[-1].position = Position.A
         checkpoint.unsold_players[0].position = Position.A
     path = tmp_path / "checkpoint.json"
-    return JsonStore().save_checkpoint(checkpoint, path)
+    return JsonStore().save_document(checkpoint, path)
 
 
 def capture_log_errors(monkeypatch) -> list[str]:

@@ -96,12 +96,6 @@ class AuctionEngine:
         """Restore the next pool-exhaustion round from a validated checkpoint."""
         if not isinstance(checkpoint, AuctionCheckpoint):
             raise TypeError("checkpoint must be an AuctionCheckpoint")
-        if checkpoint.schema_version != 1:
-            raise ValueError("Unsupported checkpoint schema version")
-        if checkpoint.document_type != "auction_checkpoint":
-            raise ValueError("Document is not an auction checkpoint")
-        if checkpoint.error_code != "pool_exhausted":
-            raise ValueError("Checkpoint is not resumable: pool_exhausted required")
 
         unsold = [
             player for player in checkpoint.players
@@ -352,23 +346,9 @@ class AuctionEngine:
             raise ValueError("Only pool exhaustion can create a checkpoint")
 
         report = self._report()
-        return AuctionCheckpoint(
-            schema_version=1,
+        fields = report.model_dump()
+        fields.update(
             document_type="auction_checkpoint",
-            timestamp_start=report.timestamp_start,
-            timestamp_end=report.timestamp_end,
-            duration_seconds=report.duration_seconds,
-            last_run_started_at=report.last_run_started_at,
-            last_run_ended_at=report.last_run_ended_at,
-            last_run_duration_seconds=report.last_run_duration_seconds,
-            run_number=report.run_number,
-            squads=report.squads,
-            transactions=report.transactions,
-            unsold_players=report.unsold_players,
-            total_players=report.total_players,
-            players_sold=report.players_sold,
-            players_unsold=report.players_unsold,
-            bid_issues=report.bid_issues,
             players=[player.model_copy(deep=True) for player in self.state.players],
             simulation=simulation,
             buyers=[buyer.model_copy(deep=True) for buyer in buyers],
@@ -379,11 +359,9 @@ class AuctionEngine:
             },
             error_code="pool_exhausted",
             error=str(error),
-            resume={
-                "incomplete_buyer_ids": list(missing_roles),
-                "pool": "unsold_players",
-            },
+            resume={"incomplete_buyer_ids": list(missing_roles)},
         )
+        return AuctionCheckpoint(**fields)
 
     def run(self) -> SimulationReport:
         """Run until all squads are complete or the pool is exhausted."""
