@@ -789,8 +789,7 @@ For these asserts to work, `FakeLlmClient.__init__` must record the resolved fie
         self.base_url = search.get("base_url") if search else None
         self.api_key = search.get("api_key") if search else None
         self.model = search.get("model") if search else None
-
-(Step 3 explains why the assert targets `FakeLlmClient` attributes: `_make_llm_client` returns `LlmClient`, monkeypatched to `FakeLlmClient` in module scope, so the call in the assert constructs a fake with the same resolution.)
+```
 
 4. Keep `test_cli_rejects_brave_api_key_field` unchanged (legacy block still rejects literal keys).
 
