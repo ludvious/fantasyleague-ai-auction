@@ -126,3 +126,105 @@ def test_search_news_returns_unavailable_message_on_http_error():
 
     client = make_client(handler, search=brave_search())
     assert client.search_news("Lautaro", 2) == "search non disponibile"
+
+
+def responses_payload():
+    return {
+        "status": "completed",
+        "output": [
+            {"type": "reasoning", "content": []},
+            {
+                "type": "web_search_call",
+                "action": {"type": "search", "query": "Lautaro"},
+            },
+            {
+                "type": "message",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Lautaro è in forma e titolare.",
+                        "annotations": [
+                            {
+                                "type": "url_citation",
+                                "title": "Inter Match Center",
+                                "url": "https://www.inter.it/it/match",
+                            },
+                            {
+                                "type": "url_citation",
+                                "title": "Inter Match Center (dup)",
+                                "url": "https://www.inter.it/it/match",
+                            },
+                            {
+                                "type": "url_citation",
+                                "title": "Fantacalcio.it",
+                                "url": "https://www.fantacalcio.it/news",
+                            },
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def responses_search(**overrides):
+    config = {
+        "provider": "responses",
+        "base_url": "https://search.test",
+        "api_key": "search-key",
+        "model": "gpt-5.6-luna",
+    }
+    config.update(overrides)
+    return config
+
+
+def test_search_news_responses_posts_web_search_tool_and_formats():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url.host == "search.test"
+        assert request.url.path == "/responses"
+        assert request.headers["Authorization"] == "Bearer search-key"
+        assert body["model"] == "gpt-5.6-luna"
+        assert body["tools"] == [{"type": "web_search"}]
+        assert "Lautaro infortunio" in body["input"]
+        assert body["max_output_tokens"] == 400
+        return httpx.Response(200, json=responses_payload())
+
+    client = make_client(handler, search=responses_search())
+    result = client.search_news("Lautaro infortunio", 5)
+
+    assert result.startswith("Lautaro è in forma e titolare.")
+    assert "Fonti:" in result
+    assert "1. Inter Match Center — https://www.inter.it/it/match" in result
+    assert "2. Fantacalcio.it — https://www.fantacalcio.it/news" in result
+    assert "dup" not in result
+
+
+def test_search_news_responses_slices_sources_to_count():
+    def handler(request):
+        return httpx.Response(200, json=responses_payload())
+
+    client = make_client(handler, search=responses_search())
+    result = client.search_news("Lautaro", 1)
+
+    assert "1. Inter Match Center — https://www.inter.it/it/match" in result
+    assert "fantacalcio.it" not in result
+
+
+def test_search_news_responses_without_message_returns_no_results():
+    def handler(request):
+        payload = responses_payload()
+        payload["output"] = [payload["output"][0]]
+        return httpx.Response(200, json=payload)
+
+    client = make_client(handler, search=responses_search())
+    assert client.search_news("Lautaro", 5) == "nessun risultato"
+
+
+def test_search_news_responses_on_http_error_returns_unavailable():
+    def handler(request):
+        return httpx.Response(500, json={"error": "boom"})
+
+    client = make_client(handler, search=responses_search())
+    assert client.search_news("Lautaro", 5) == "search non disponibile"

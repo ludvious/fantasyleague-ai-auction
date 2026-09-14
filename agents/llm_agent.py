@@ -49,6 +49,33 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
+SEARCH_PROMPT = (
+    "Cerca notizie recenti su: {query}. Riassumi brevemente in italiano le "
+    "informazioni utili per un'asta di fantacalcio (infortuni, forma, "
+    "titolarità, mercato)."
+)
+
+
+def _format_search_result(
+    summary: str, sources: list[tuple[str, str]], count: int
+) -> str:
+    by_url: dict[str, tuple[str, str]] = {}
+    for title, url in sources:
+        by_url.setdefault(url, (title, url))
+    unique = list(by_url.values())[: max(1, count)]
+    lines = []
+    if summary:
+        lines.append(summary)
+    if unique:
+        lines.append("")
+        lines.append("Fonti:")
+        lines.extend(
+            f"{index}. {title} — {url}"
+            for index, (title, url) in enumerate(unique, start=1)
+        )
+    return "\n".join(lines)
+
+
 class LlmClient:
     """One shared httpx client for chat completions and web search."""
 
@@ -155,7 +182,47 @@ class LlmClient:
         return "\n".join(lines) if lines else "nessun risultato"
 
     def _search_responses(self, query: str, count: int) -> str:
-        raise NotImplementedError
+        response = self._http.post(
+            f"{self._search['base_url']}/responses",
+            headers={
+                "Authorization": f"Bearer {self._search['api_key']}",
+                **(self._search.get("headers") or {}),
+            },
+            json={
+                "model": self._search["model"],
+                "input": SEARCH_PROMPT.format(query=query),
+                "tools": [{"type": "web_search"}],
+                "max_output_tokens": int(
+                    self._search.get("max_output_tokens", 400)
+                ),
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        summary_parts = []
+        sources: list[tuple[str, str]] = []
+        for item in payload.get("output") or []:
+            if item.get("type") != "message":
+                continue
+            for part in item.get("content") or []:
+                if part.get("type") != "output_text":
+                    continue
+                summary_parts.append(str(part.get("text") or ""))
+                for annotation in part.get("annotations") or []:
+                    if (
+                        annotation.get("type") == "url_citation"
+                        and annotation.get("url")
+                    ):
+                        sources.append(
+                            (
+                                str(annotation.get("title") or ""),
+                                str(annotation["url"]),
+                            )
+                        )
+        summary = "\n".join(part for part in summary_parts if part).strip()
+        if not summary and not sources:
+            return "nessun risultato"
+        return _format_search_result(summary, sources, count)
 
     def _search_anthropic(self, query: str, count: int) -> str:
         raise NotImplementedError
