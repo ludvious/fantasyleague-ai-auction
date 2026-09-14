@@ -42,8 +42,9 @@ domain.
   `{search_news, submit_bid}`;
 - one shared thread-safe `LlmClient` (httpx) per run;
 - per-agent JSONL trace logs under `logs/traces/<run_dir>/<buyer_id>.jsonl`;
-- parallel bid collection with a per-call thread pool (`_collect_bids`),
-  keeping validation and issue ordering identical to the sequential path;
+- parallel bid collection was considered and removed; bids are collected
+  sequentially in bidder order (`_collect_bids`), keeping validation and issue
+  ordering identical to the original design;
 - `benchmark` CLI subcommand with pure metrics (`metrics.json`,
   `metrics.csv`, console table) and `completed: false` for exhausted runs;
 - sidecar-based resume: `checkpoint.llm.yaml` written next to checkpoints
@@ -76,5 +77,8 @@ decision:
 - quotation-based starting prices;
 - unversioned changes to the JSON report or checkpoint formats.
 
-The earlier MVP design and implementation plan are available under
-`docs/superpowers/specs/` and `docs/superpowers/plans/`.
+## Backlog (candidates, not yet designed)
+
+- interactive `--step` mode with save-and-quit (issue #9);
+- web search provider not tied to Brave;
+- configurable prompt architecture for LLM buyers (`agents/prompt.md`).

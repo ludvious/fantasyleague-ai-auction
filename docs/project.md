@@ -20,8 +20,8 @@ The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
 - LLM-driven bidders (`AgentManager`) loop over OpenAI-compatible
   function-calling until a valid `submit_bid` arrives, with per-agent JSONL
   traces under `logs/traces/`;
-- bids are collected in parallel with a per-call thread pool while validation
-  and issue recording stay sequential in bidder order;
+- bids are collected sequentially in bidder order, with validation and issue
+  recording inline;
 - checkpoints containing `llm` buyers save a `checkpoint.llm.yaml` sidecar and
   resume from it;
 - the `benchmark` subcommand runs multiple auctions and aggregates pure
@@ -29,7 +29,7 @@ The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **161 tests passed**;
+- `venv/bin/pytest -q -W error`: **153 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
@@ -230,7 +230,6 @@ utils/
   excel_handler.py    Excel input validation and player loading
   json_store.py       JSON report/checkpoint persistence
   logger.py            Logging setup
-  validator.py         Legacy validation facade
 
 configs/
   default.yaml        Active default simulation configuration
@@ -241,7 +240,7 @@ data/
 
 main.py               CLI composition root
 tests/                Domain, adapter, persistence, and CLI tests
-docs/                 MVP design and implementation history
+docs/                 Architecture notes and roadmap
 ```
 
 ## Verification
@@ -257,4 +256,4 @@ raising bidders, tie and no-bid outcomes, deterministic and random bidder
 behavior, canonical players, Excel schema handling, JSON persistence, pool
 exhaustion, configuration contract validation, LLM configuration validation,
 sidecar save/resume flows, trace logging, the LLM function-calling loop,
-parallel bid collection, benchmark metrics, and CLI success/failure paths.
+bid extraction ordering, benchmark metrics, and CLI success/failure paths.
