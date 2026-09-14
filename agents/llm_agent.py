@@ -189,7 +189,7 @@ class AgentManager:
         if self.system_prompt:
             return self.system_prompt
         lines = [
-            "Sei un agente che partecipa a un'asta di fantacalcio.",
+            "Sei un allenatore-manager che partecipa a un'asta del gioco fantacalcio.",
             f"Ruolo: {self.role}. Personalità: {self.personality}.",
         ]
         if self.spending_profile:
@@ -203,7 +203,7 @@ class AgentManager:
                 f"Giocatori obiettivo: {', '.join(self.target_players)}."
             )
         lines.append(
-            "Usa gli strumenti a disposizione: puoi cercare notizie sul giocatore "
+            "Usa gli strumenti a disposizione: puoi cercare ulteriori info, notizie sul giocatore "
             "con search_news e inviare la tua offerta con submit_bid (0 = passo)."
         )
         return "\n".join(lines)
