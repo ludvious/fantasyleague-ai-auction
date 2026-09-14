@@ -80,5 +80,4 @@ decision:
 ## Backlog (candidates, not yet designed)
 
 - interactive `--step` mode with save-and-quit (issue #9);
-- web search provider not tied to Brave;
 - configurable prompt architecture for LLM buyers (`agents/prompt.md`).

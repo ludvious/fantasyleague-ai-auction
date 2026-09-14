@@ -119,14 +119,22 @@ adds a global `llm` block and a per-buyer `llm` block:
 
 ```yaml
 llm:
-  base_url: "https://api.openai.com/v1"
-  api_key_env: "OPENAI_API_KEY"
-  model: "gpt-4o-mini"
+  base_url: "https://opencode.ai/zen/go/v1"
+  api_key_env: "OPENCODE_API_KEY"
+  model: "glm-5.3"
   temperature: 0.7
   timeout_seconds: 30
-  brave:
-    base_url: "https://api.search.brave.com/res/v1/web/search"
-    api_key_env: "BRAVE_API_KEY"
+  # Header applicati a tutte le richieste. x-opencode-session è richiesto
+  # da OpenCode Go; se omesso viene generato un default per-run.
+  # headers:
+  #   x-opencode-session: "asta-2026"
+  search:
+    provider: "responses"
+    model: "gpt-5.6-luna"
+    # base_url e api_key_env ereditano da llm sopra; max_output_tokens
+    # default 400. Altri provider:
+    #   anthropic → provider + model (base_url default https://api.anthropic.com)
+    #   brave     → search classica "titolo — url" (provider + api_key_env)
 
 buyers:
   - id: "buyer_1"
@@ -141,16 +149,21 @@ buyers:
 Each `strategy: "llm"` buyer is an `AgentManager` that loops over
 OpenAI-compatible `chat` calls with the fixed tool set
 `{search_news, submit_bid}` until it returns a valid bid. The API key is read
-from the environment variable named by `llm.api_key_env` (`OPENAI_API_KEY` in
+from the environment variable named by `llm.api_key_env` (`OPENCODE_API_KEY` in
 the example); only the variable name may appear in configuration files and
 sidecars. A missing variable is a pre-auction error.
 
-`search_news` uses the Brave free tier and degrades to the tool message
-`"search non disponibile"` when the key is missing, is the mock placeholder, or
-the request fails. The Brave key is read from the environment variable named
-by `llm.brave.api_key_env` (`BRAVE_API_KEY` in the example); a missing or
-placeholder value disables live search. Like the LLM key, the Brave key never
-appears in configuration files or sidecars, only the variable name.
+`search_news` is configured through the optional `llm.search` block, which
+supports the `responses`, `anthropic`, and `brave` providers. The native
+providers (`responses`, `anthropic`) return a summary of the news with cited
+sources (`Fonti:`); `brave` keeps the classic `titolo — url` listing and
+remains available as the legacy provider (the old `llm.brave` block is still
+accepted when `llm.search` is absent). The search key is read from the
+environment variable named by `llm.search.api_key_env` (inherited from
+`llm.api_key_env` when omitted); a missing or placeholder key, or a failed
+request, degrades to the tool message `search non disponibile`. Like the LLM
+key, the search key never appears in configuration files or sidecars, only
+the variable name.
 
 Every LLM buyer writes one JSON object per event to
 `logs/traces/<run_dir>/<buyer_id>.jsonl`; the `<run_dir>` is chosen by the
