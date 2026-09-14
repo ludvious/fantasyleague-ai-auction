@@ -970,6 +970,68 @@ def llm_sidecar_payload() -> dict:
     }
 
 
+def search_sidecar_payload() -> dict:
+    payload = llm_sidecar_payload()
+    payload["llm"].pop("brave")
+    payload["llm"]["search"] = {
+        "provider": "responses",
+        "model": "gpt-5.6-luna",
+    }
+    return payload
+
+
+def make_llm_search_checkpoint(tmp_path, *, no_progress: bool = False) -> Path:
+    checkpoint = make_llm_checkpoint(tmp_path, no_progress=no_progress)
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(search_sidecar_payload()), encoding="utf-8"
+    )
+    return checkpoint
+
+
+def test_cli_resumes_llm_checkpoint_with_search_sidecar(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    monkeypatch.setattr(
+        cli_module, "_trace_run_dir", lambda logs_dir=None: tmp_path / "traces" / "resume"
+    )
+    checkpoint = make_llm_search_checkpoint(tmp_path)
+    report = tmp_path / "report.json"
+
+    exit_code = main([
+        "--resume", str(checkpoint),
+        "--config", str(tmp_path / "missing.yaml"),
+        "--output", str(report),
+    ])
+
+    assert exit_code == 0
+    assert (tmp_path / "traces" / "resume" / "incomplete.jsonl").exists()
+
+
+def test_cli_exhaustion_sidecar_contains_search_block(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    checkpoint = tmp_path / "checkpoint.json"
+    write_workbook(workbook, {"A": 1})
+    write_raw_config(config, search_llm_config(workbook))
+
+    exit_code = main([
+        "--config", str(config),
+        "--checkpoint", str(checkpoint),
+    ])
+
+    assert exit_code == 1
+    data = yaml.safe_load(
+        (tmp_path / "checkpoint.llm.yaml").read_text(encoding="utf-8")
+    )
+    assert data["llm"]["search"] == {
+        "provider": "responses",
+        "model": "gpt-5.6-luna",
+    }
+    assert "api_key" not in data["llm"]["search"]
+
+
 def test_cli_llm_exhaustion_writes_checkpoint_and_sidecar(monkeypatch, tmp_path):
     monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
     monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
