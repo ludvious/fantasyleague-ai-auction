@@ -225,7 +225,56 @@ class LlmClient:
         return _format_search_result(summary, sources, count)
 
     def _search_anthropic(self, query: str, count: int) -> str:
-        raise NotImplementedError
+        response = self._http.post(
+            f"{self._search['base_url']}/v1/messages",
+            headers={
+                "x-api-key": self._search["api_key"],
+                "anthropic-version": "2023-06-01",
+                **(self._search.get("headers") or {}),
+            },
+            json={
+                "model": self._search["model"],
+                "max_tokens": int(
+                    self._search.get("max_output_tokens", 400)
+                ),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": SEARCH_PROMPT.format(query=query),
+                    }
+                ],
+                "tools": [
+                    {
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": 1,
+                    }
+                ],
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        summary_parts = []
+        sources: list[tuple[str, str]] = []
+        for block in payload.get("content") or []:
+            if block.get("type") == "text":
+                summary_parts.append(str(block.get("text") or ""))
+            elif block.get("type") == "web_search_tool_result":
+                for result in block.get("content") or []:
+                    if (
+                        result.get("type") == "web_search_result"
+                        and result.get("url")
+                    ):
+                        sources.append(
+                            (
+                                str(result.get("title") or ""),
+                                str(result["url"]),
+                            )
+                        )
+        summary = "\n".join(part for part in summary_parts if part).strip()
+        if not summary and not sources:
+            return "nessun risultato"
+        return _format_search_result(summary, sources, count)
 
 
 class AgentManager:

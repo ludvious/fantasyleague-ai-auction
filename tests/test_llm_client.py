@@ -228,3 +228,79 @@ def test_search_news_responses_on_http_error_returns_unavailable():
 
     client = make_client(handler, search=responses_search())
     assert client.search_news("Lautaro", 5) == "search non disponibile"
+
+
+def anthropic_payload():
+    return {
+        "content": [
+            {
+                "type": "server_tool_use",
+                "id": "srvtoolu_01",
+                "name": "web_search",
+                "input": {"query": "Lautaro"},
+            },
+            {
+                "type": "web_search_tool_result",
+                "tool_use_id": "srvtoolu_01",
+                "content": [
+                    {
+                        "type": "web_search_result",
+                        "title": "Inter Match Center",
+                        "url": "https://www.inter.it/it/match",
+                    },
+                    {
+                        "type": "web_search_result",
+                        "title": "Fantacalcio.it",
+                        "url": "https://www.fantacalcio.it/news",
+                    },
+                ],
+            },
+            {
+                "type": "text",
+                "text": "Lautaro è in forma e titolare.",
+            },
+        ]
+    }
+
+
+def anthropic_search(**overrides):
+    config = {
+        "provider": "anthropic",
+        "base_url": "https://anthropic.test",
+        "api_key": "anthropic-key",
+        "model": "claude-opus-4-8",
+    }
+    config.update(overrides)
+    return config
+
+
+def test_search_news_anthropic_posts_server_tool_and_formats():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url.host == "anthropic.test"
+        assert request.url.path == "/v1/messages"
+        assert request.headers["x-api-key"] == "anthropic-key"
+        assert request.headers["anthropic-version"] == "2023-06-01"
+        assert body["model"] == "claude-opus-4-8"
+        assert body["max_tokens"] == 400
+        assert body["tools"] == [
+            {"type": "web_search_20250305", "name": "web_search", "max_uses": 1}
+        ]
+        assert "Lautaro infortunio" in body["messages"][0]["content"]
+        return httpx.Response(200, json=anthropic_payload())
+
+    client = make_client(handler, search=anthropic_search())
+    result = client.search_news("Lautaro infortunio", 5)
+
+    assert result.startswith("Lautaro è in forma e titolare.")
+    assert "Fonti:" in result
+    assert "1. Inter Match Center — https://www.inter.it/it/match" in result
+    assert "2. Fantacalcio.it — https://www.fantacalcio.it/news" in result
+
+
+def test_search_news_anthropic_on_http_error_returns_unavailable():
+    def handler(request):
+        return httpx.Response(401, json={"error": "no key"})
+
+    client = make_client(handler, search=anthropic_search())
+    assert client.search_news("Lautaro", 5) == "search non disponibile"
