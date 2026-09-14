@@ -50,14 +50,13 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 class LlmClient:
-    """One shared httpx client for chat completions and Brave search."""
+    """One shared httpx client for chat completions and web search."""
 
     def __init__(
         self,
         base_url: str,
         api_key: str,
-        brave_base_url: str,
-        brave_api_key: str,
+        search: dict[str, Any] | None = None,
         timeout_seconds: int = 30,
         transport: httpx.BaseTransport | None = None,
     ):
@@ -69,8 +68,7 @@ class LlmClient:
             transport=transport,
         )
         self._api_key = api_key
-        self.brave_base_url = brave_base_url
-        self.brave_api_key = brave_api_key
+        self._search = search
 
     def chat(
         self,
@@ -123,25 +121,44 @@ class LlmClient:
         }
 
     def search_news(self, query: str, count: int) -> str:
-        """Best-effort Brave search; returns an Italian tool message."""
-        if not self.brave_api_key or self.brave_api_key == MOCK_BRAVE_KEY:
+        """Best-effort web search; returns an Italian tool message."""
+        search = self._search
+        if (
+            not search
+            or not search.get("api_key")
+            or search.get("api_key") == MOCK_BRAVE_KEY
+        ):
             return "search non disponibile"
+        provider = str(search.get("provider", ""))
         try:
-            response = self._http.get(
-                self.brave_base_url,
-                params={"q": query, "count": count},
-                headers={"X-Subscription-Token": self.brave_api_key},
-            )
-            response.raise_for_status()
-            payload = response.json()
-            results = (payload.get("web") or {}).get("results") or []
-        except (httpx.HTTPError, ValueError, AttributeError):
+            if provider == "responses":
+                return self._search_responses(query, count)
+            if provider == "anthropic":
+                return self._search_anthropic(query, count)
+            return self._search_brave(query, count)
+        except (httpx.HTTPError, ValueError, AttributeError, KeyError, TypeError):
             return "search non disponibile"
+
+    def _search_brave(self, query: str, count: int) -> str:
+        response = self._http.get(
+            self._search["base_url"],
+            params={"q": query, "count": count},
+            headers={"X-Subscription-Token": self._search["api_key"]},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        results = (payload.get("web") or {}).get("results") or []
         lines = [
             f"{index + 1}. {result.get('title', '')} — {result.get('url', '')}"
             for index, result in enumerate(results)
         ]
         return "\n".join(lines) if lines else "nessun risultato"
+
+    def _search_responses(self, query: str, count: int) -> str:
+        raise NotImplementedError
+
+    def _search_anthropic(self, query: str, count: int) -> str:
+        raise NotImplementedError
 
 
 class AgentManager:

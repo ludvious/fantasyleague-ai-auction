@@ -6,14 +6,23 @@ import pytest
 from agents.llm_agent import LlmClient, MOCK_BRAVE_KEY
 
 
-def make_client(handler, brave_key="brave-key"):
+def make_client(handler, search=None):
     return LlmClient(
         base_url="https://api.test/v1",
         api_key="test-key",
-        brave_base_url="https://brave.test/search",
-        brave_api_key=brave_key,
+        search=search,
         transport=httpx.MockTransport(handler),
     )
+
+
+def brave_search(**overrides):
+    config = {
+        "provider": "brave",
+        "base_url": "https://brave.test/search",
+        "api_key": "brave-key",
+    }
+    config.update(overrides)
+    return config
 
 
 def test_chat_posts_expected_payload_and_parses_tool_calls():
@@ -83,8 +92,13 @@ def test_chat_raises_on_malformed_tool_arguments():
 def test_search_news_returns_unavailable_message_for_mock_key():
     client = make_client(
         lambda request: httpx.Response(200, json={}),
-        brave_key=MOCK_BRAVE_KEY,
+        search=brave_search(api_key=MOCK_BRAVE_KEY),
     )
+    assert client.search_news("Lautaro infortunio", 3) == "search non disponibile"
+
+
+def test_search_news_returns_unavailable_message_without_search_config():
+    client = make_client(lambda request: httpx.Response(200, json={}))
     assert client.search_news("Lautaro infortunio", 3) == "search non disponibile"
 
 
@@ -99,7 +113,7 @@ def test_search_news_formats_top_results():
             ]}
         })
 
-    client = make_client(handler)
+    client = make_client(handler, search=brave_search())
     result = client.search_news("Lautaro infortunio", 2)
 
     assert "Notizia 1" in result
@@ -110,4 +124,5 @@ def test_search_news_returns_unavailable_message_on_http_error():
     def handler(request):
         return httpx.Response(503, json={})
 
-    assert make_client(handler).search_news("Lautaro", 2) == "search non disponibile"
+    client = make_client(handler, search=brave_search())
+    assert client.search_news("Lautaro", 2) == "search non disponibile"

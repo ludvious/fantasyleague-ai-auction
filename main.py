@@ -44,13 +44,18 @@ def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
             f"Environment variable '{api_key_env}' (llm.api_key_env) is not set; "
             "set it before running an auction with LLM bidders"
         )
-    brave = llm_config.get("brave") or {}
-    brave_api_key = os.environ.get(str(brave.get("api_key_env", "")), "")
+    search = None
+    brave = llm_config.get("brave")
+    if brave is not None:
+        search = {
+            "provider": "brave",
+            "base_url": str(brave["base_url"]),
+            "api_key": os.environ.get(str(brave["api_key_env"]), ""),
+        }
     return LlmClient(
         base_url=str(llm_config["base_url"]),
         api_key=api_key,
-        brave_base_url=str(brave["base_url"]),
-        brave_api_key=brave_api_key,
+        search=search,
         timeout_seconds=int(llm_config.get("timeout_seconds", 30)),
     )
 

@@ -632,12 +632,12 @@ class FakeLlmClient:
         self,
         base_url,
         api_key,
-        brave_base_url,
-        brave_api_key,
+        search=None,
         timeout_seconds=30,
         transport=None,
     ):
         self.calls = 0
+        self.search = search
 
     def chat(self, messages, tools, model, temperature):
         self.calls += 1
