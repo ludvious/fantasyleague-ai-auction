@@ -304,3 +304,23 @@ def test_search_news_anthropic_on_http_error_returns_unavailable():
 
     client = make_client(handler, search=anthropic_search())
     assert client.search_news("Lautaro", 5) == "search non disponibile"
+
+
+def test_client_sends_user_agent_and_extra_headers_by_default():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["User-Agent"] == "fantasyleague-auction/0.1"
+        assert request.headers["x-opencode-session"] == "session-1"
+        return httpx.Response(200, json={
+            "choices": [{
+                "message": {"role": "assistant", "content": "ok", "tool_calls": []},
+                "finish_reason": "stop",
+            }],
+        })
+
+    client = LlmClient(
+        base_url="https://api.test/v1",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+        extra_headers={"x-opencode-session": "session-1"},
+    )
+    client.chat([{"role": "user", "content": "ciao"}], [], "gpt-4o-mini", 0.7)

@@ -36,6 +36,12 @@ def _trace_run_dir(logs_dir: str | Path | None) -> Path:
     return Path(logs_dir or "logs") / "traces" / run_id
 
 
+SEARCH_PROVIDER_DEFAULTS = {
+    "anthropic": {"base_url": "https://api.anthropic.com"},
+    "brave": {"base_url": "https://api.search.brave.com/res/v1/web/search"},
+}
+
+
 def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
     api_key_env = str(llm_config.get("api_key_env", ""))
     api_key = os.environ.get(api_key_env)
@@ -44,19 +50,48 @@ def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
             f"Environment variable '{api_key_env}' (llm.api_key_env) is not set; "
             "set it before running an auction with LLM bidders"
         )
+    search_config = llm_config.get("search")
+    if search_config is None and llm_config.get("brave") is not None:
+        search_config = {"provider": "brave", **llm_config["brave"]}
     search = None
-    brave = llm_config.get("brave")
-    if brave is not None:
+    if search_config is not None:
+        provider = str(search_config.get("provider", ""))
+        defaults = SEARCH_PROVIDER_DEFAULTS.get(provider, {})
         search = {
-            "provider": "brave",
-            "base_url": str(brave["base_url"]),
-            "api_key": os.environ.get(str(brave["api_key_env"]), ""),
+            "provider": provider,
+            "base_url": str(
+                search_config.get("base_url")
+                or defaults.get("base_url")
+                or llm_config.get("base_url")
+                or ""
+            ),
+            "api_key": os.environ.get(
+                str(
+                    search_config.get("api_key_env")
+                    or llm_config.get("api_key_env")
+                    or ""
+                ),
+                "",
+            ),
         }
+        for key in ("model", "max_output_tokens", "headers"):
+            if search_config.get(key) is not None:
+                search[key] = search_config[key]
+    headers = {
+        str(name): str(value)
+        for name, value in (llm_config.get("headers") or {}).items()
+    }
+    headers.setdefault(
+        "x-opencode-session",
+        "fantasyleague-"
+        + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S"),
+    )
     return LlmClient(
         base_url=str(llm_config["base_url"]),
         api_key=api_key,
         search=search,
         timeout_seconds=int(llm_config.get("timeout_seconds", 30)),
+        extra_headers=headers,
     )
 
 

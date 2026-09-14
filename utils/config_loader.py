@@ -94,6 +94,50 @@ def validate_llm_buyer(llm: Any, index: int | str) -> None:
         )
 
 
+SEARCH_PROVIDERS = ("responses", "anthropic", "brave")
+
+
+def _validate_header_map(headers: Any, where: str) -> None:
+    if not isinstance(headers, dict):
+        raise ValueError(f"'{where}' must be a mapping")
+    for name, value in headers.items():
+        if not str(name).strip() or not str(value).strip():
+            raise ValueError(f"'{where}' entries must be non-empty strings")
+
+
+def _validate_search_block(search: Any) -> None:
+    if not isinstance(search, dict):
+        raise ValueError("'llm.search' must be a mapping")
+    if search.get("api_key") is not None:
+        raise ValueError(
+            "'llm.search.api_key' is not supported; use 'llm.search.api_key_env' "
+            "with the environment variable name, never the key itself"
+        )
+    provider = str(search.get("provider", "")).strip()
+    if provider not in SEARCH_PROVIDERS:
+        raise ValueError(
+            f"'llm.search.provider' must be one of {list(SEARCH_PROVIDERS)}"
+        )
+    if provider != "brave" and not str(search.get("model", "")).strip():
+        raise ValueError(
+            "'llm.search.model' must be a non-empty string for provider "
+            f"'{provider}'"
+        )
+    for key in ("base_url", "api_key_env"):
+        value = search.get(key)
+        if value is not None and not str(value).strip():
+            raise ValueError(f"'llm.search.{key}' must be a non-empty string")
+    max_output_tokens = search.get("max_output_tokens")
+    if max_output_tokens is not None and (
+        isinstance(max_output_tokens, bool)
+        or not isinstance(max_output_tokens, int)
+        or max_output_tokens < 1
+    ):
+        raise ValueError("'llm.search.max_output_tokens' must be an int > 0")
+    if search.get("headers") is not None:
+        _validate_header_map(search["headers"], "llm.search.headers")
+
+
 def validate_global_llm(llm: Any) -> None:
     if not isinstance(llm, dict):
         raise ValueError("'llm' must be a mapping")
@@ -114,17 +158,28 @@ def validate_global_llm(llm: Any) -> None:
         or timeout_seconds < 1
     ):
         raise ValueError("'llm.timeout_seconds' must be an int > 0")
+    search = llm.get("search")
     brave = llm.get("brave")
-    if not isinstance(brave, dict):
-        raise ValueError("'llm.brave' must be a mapping")
-    if brave.get("api_key") is not None:
+    if search is not None and brave is not None:
         raise ValueError(
-            "'llm.brave.api_key' is not supported; use 'llm.brave.api_key_env' "
-            "with the environment variable name, never the key itself"
+            "'llm.search' and 'llm.brave' are mutually exclusive; "
+            "'llm.brave' is the legacy search block"
         )
-    for key in ("base_url", "api_key_env"):
-        if not str(brave.get(key, "")).strip():
-            raise ValueError(f"'llm.brave.{key}' must be a non-empty string")
+    if search is not None:
+        _validate_search_block(search)
+    elif brave is not None:
+        if not isinstance(brave, dict):
+            raise ValueError("'llm.brave' must be a mapping")
+        if brave.get("api_key") is not None:
+            raise ValueError(
+                "'llm.brave.api_key' is not supported; use 'llm.brave.api_key_env' "
+                "with the environment variable name, never the key itself"
+            )
+        for key in ("base_url", "api_key_env"):
+            if not str(brave.get(key, "")).strip():
+                raise ValueError(f"'llm.brave.{key}' must be a non-empty string")
+    if llm.get("headers") is not None:
+        _validate_header_map(llm["headers"], "llm.headers")
 
 
 def _validate_config(config: dict[str, Any]) -> None:

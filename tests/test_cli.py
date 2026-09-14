@@ -635,9 +635,15 @@ class FakeLlmClient:
         search=None,
         timeout_seconds=30,
         transport=None,
+        extra_headers=None,
     ):
         self.calls = 0
         self.search = search
+        self.extra_headers = extra_headers
+        self.provider = search.get("provider") if search else None
+        self.base_url = search.get("base_url") if search else None
+        self.api_key = search.get("api_key") if search else None
+        self.model = search.get("model") if search else None
 
     def chat(self, messages, tools, model, temperature):
         self.calls += 1
@@ -671,6 +677,16 @@ def base_llm_config(workbook: Path) -> dict:
         },
         "buyers": [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {}}],
     }
+
+
+def search_llm_config(workbook: Path) -> dict:
+    data = base_llm_config(workbook)
+    data["llm"].pop("brave")
+    data["llm"]["search"] = {
+        "provider": "responses",
+        "model": "gpt-5.6-luna",
+    }
+    return data
 
 
 def test_cli_llm_run_completes_with_fake_client(monkeypatch, tmp_path):
@@ -798,17 +814,114 @@ def test_cli_rejects_empty_llm_base_url(monkeypatch, tmp_path):
     assert any("'llm.base_url' must be a non-empty string" in error for error in errors)
 
 
-def test_cli_rejects_missing_brave_block(monkeypatch, tmp_path):
+def test_cli_search_block_optional_when_no_brave(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    data = base_llm_config(workbook)
+    data["llm"].pop("brave")
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
+
+    assert main(["--config", str(config), "--output", str(tmp_path / "r.json")]) == 0
+
+
+@pytest.mark.parametrize(
+    ("search_block", "message"),
+    [
+        (
+            {"provider": "perplexity"},
+            "'llm.search.provider' must be one of",
+        ),
+        (
+            {"provider": "responses"},
+            "'llm.search.model' must be a non-empty string",
+        ),
+        (
+            {"provider": "anthropic", "model": "claude-opus-4-8", "api_key": "k"},
+            "'llm.search.api_key' is not supported",
+        ),
+        (
+            {"provider": "responses", "model": "m", "max_output_tokens": 0},
+            "'llm.search.max_output_tokens' must be an int > 0",
+        ),
+        (
+            {"provider": "responses", "model": "m", "base_url": "  "},
+            "'llm.search.base_url' must be a non-empty string",
+        ),
+        (
+            {"provider": "responses", "model": "m", "headers": "nope"},
+            "'llm.search.headers' must be a mapping",
+        ),
+    ],
+)
+def test_cli_rejects_invalid_search_block(
+    monkeypatch, tmp_path, search_block, message
+):
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     write_workbook(workbook, {"A": 1})
-    data = base_llm_config(workbook)
-    data["llm"].pop("brave")
+    data = search_llm_config(workbook)
+    data["llm"]["search"] = search_block
     write_raw_config(config, data)
     errors = capture_log_errors(monkeypatch)
 
     assert main(["--config", str(config)]) == 1
-    assert any("'llm.brave' must be a mapping" in error for error in errors)
+    assert any(message in error for error in errors)
+
+
+def test_cli_rejects_search_and_brave_together(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = search_llm_config(workbook)
+    data["llm"]["brave"] = {
+        "base_url": "https://api.search.brave.com/res/v1/web/search",
+        "api_key_env": "TEST_BRAVE_API_KEY",
+    }
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("mutually exclusive" in error for error in errors)
+
+
+def test_cli_rejects_invalid_llm_headers(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = search_llm_config(workbook)
+    data["llm"]["headers"] = {"x-empty": ""}
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("'llm.headers' entries must be non-empty strings" in error for error in errors)
+
+
+def test_cli_resolves_search_config_with_defaults(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setenv("TEST_SEARCH_API_KEY", "search-dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "search": {
+            "provider": "responses",
+            "model": "gpt-5.6-luna",
+            "api_key_env": "TEST_SEARCH_API_KEY",
+        },
+    }
+
+    client = cli_module._make_llm_client(llm_config)
+
+    assert client.provider == "responses"
+    assert client.base_url == "https://api.test/v1"
+    assert client.api_key == "search-dummy"
+    assert client.model == "gpt-5.6-luna"
+    assert client.extra_headers["x-opencode-session"].startswith("fantasyleague-")
 
 
 def test_cli_rejects_brave_api_key_field(monkeypatch, tmp_path):

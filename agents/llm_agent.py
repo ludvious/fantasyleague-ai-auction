@@ -13,6 +13,8 @@ from core.models import Player, Squad
 
 MOCK_BRAVE_KEY = "INSERISCI_LA_TUA_BRAVE_API_KEY"
 
+USER_AGENT = "fantasyleague-auction/0.1"
+
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "search_news": {
         "type": "function",
@@ -86,6 +88,7 @@ class LlmClient:
         search: dict[str, Any] | None = None,
         timeout_seconds: int = 30,
         transport: httpx.BaseTransport | None = None,
+        extra_headers: dict[str, str] | None = None,
     ):
         if not api_key:
             raise ValueError("LLM API key must be a non-empty string")
@@ -93,6 +96,7 @@ class LlmClient:
             base_url=base_url,
             timeout=timeout_seconds,
             transport=transport,
+            headers={"User-Agent": USER_AGENT, **(extra_headers or {})},
         )
         self._api_key = api_key
         self._search = search
