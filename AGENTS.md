@@ -33,6 +33,7 @@ venv/bin/python main.py benchmark --config configs/llm.yaml --runs 2
 - Only `AuctionIncompleteError` (pool exhaustion) writes a resumable checkpoint. Config errors, file errors, and other exceptions exit `1` with no checkpoint.
 - Reports/checkpoints are version-1 typed JSON (`schema_version` + `document_type: auction_report|auction_checkpoint`). Never change these formats without bumping a version (explicitly out of scope otherwise).
 - Roster sizes are fixed: 25 players = P3/D8/C8/A6.
+- Coach files are only discovered when `paths.coaches` is set — a `coachAgent_*.md` dropped in `agents/` does nothing unless `configs/llm.yaml` (or another config) points there. The `Bidder` protocol requires `observe(result, squad)`, so every test double must implement it (no-op is fine).
 
 ## Secrets
 

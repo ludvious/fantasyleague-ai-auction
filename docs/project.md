@@ -8,7 +8,7 @@ adapters.
 
 ## Current status
 
-The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
+The deterministic auction MVP is implemented and P1–P4 are complete:
 
 - strict bid validation is centralized in `Squad`;
 - invalid bidder output and bidder exceptions are isolated and recorded as
@@ -36,7 +36,7 @@ The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **153 tests passed**;
+- `venv/bin/pytest -q -W error`: **207 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
@@ -115,7 +115,7 @@ reads these fields:
 | `paths` | `output` | no | report path or directory |
 | `paths` | `checkpoint` | no | checkpoint path or directory |
 | `paths` | `logs` | no | log directory, default `logs` |
-| `buyers` | list | yes | non-empty; each entry has `id`, `name`, `strategy` (`deterministic`, `random` or `llm`, default `deterministic`), `priority` (default: list index), and `llm` (required mapping when `strategy: "llm"`) |
+| `buyers` | list | no | each entry has `id`, `name`, `strategy` (`deterministic`, `random` or `llm`, default `deterministic`), `priority` (default: list index), and `llm` (required mapping when `strategy: "llm"`); either `buyers` or `paths.coaches` must provide at least one buyer |
 | `llm` | `base_url` | yes* | non-empty string, OpenAI-compatible endpoint |
 | `llm` | `api_key_env` | yes* | environment variable name holding the API key; the key itself never appears in config files |
 | `llm` | `model` | yes* | model name passed to the chat API |
@@ -132,9 +132,15 @@ reads these fields:
 | `logging` | `level` | no | default `INFO` |
 | `logging` | `log_to_file` | no | default `false` |
 
-*Required only when at least one buyer has `strategy: "llm"`. Live search is
-optional: a missing or placeholder search key disables live search (the
-`search_info` tool returns `search non disponibile`).
+*Required only when at least one buyer has `strategy: "llm"` (including
+discovered coaches). Live search is optional: a missing or placeholder search
+key disables live search (the `search_info` tool returns
+`search non disponibile`).
+
+Coaches discovered from `paths.coaches` are buyer entries whose
+`coachAgent_*.md` front-matter accepts the same field names as `buyers[].llm`
+(plus optional `id`/`name` overrides); the markdown body is appended to the
+shared common prompt. Duplicate ids between `buyers` and coaches are rejected.
 
 Unknown sections and fields are ignored. Precedence:
 
@@ -253,7 +259,8 @@ utils/
 
 configs/
   default.yaml        Active default simulation configuration
-  llm.yaml            Example LLM-driven auction configuration
+  llm.yaml            Example CoachAgent auction configuration (discovers
+                      agents/coachAgent_*.md)
 
 data/
   *.xlsx              Player source workbook
