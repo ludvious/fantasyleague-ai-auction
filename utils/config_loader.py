@@ -200,9 +200,17 @@ def _validate_config(config: dict[str, Any]) -> None:
     if not isinstance(paths, dict) or not paths.get("players"):
         raise ValueError("'paths.players' is required")
     buyers = config.get("buyers")
-    if not isinstance(buyers, list) or not buyers:
+    coaches = paths.get("coaches") if isinstance(paths, dict) else None
+    if coaches is not None and not str(coaches).strip():
+        raise ValueError("'paths.coaches' must be a non-empty string")
+    if buyers is not None and not isinstance(buyers, list):
         raise ValueError("'buyers' must be a non-empty list")
-    for index, buyer in enumerate(buyers):
+    buyer_list = buyers or []
+    if not buyer_list and not coaches:
+        raise ValueError(
+            "'buyers' must be a non-empty list when 'paths.coaches' is not set"
+        )
+    for index, buyer in enumerate(buyer_list):
         if not isinstance(buyer, dict):
             raise ValueError(f"'buyers[{index}]' must be a mapping")
         if not str(buyer.get("id", "")).strip():
@@ -221,9 +229,9 @@ def _validate_config(config: dict[str, Any]) -> None:
             isinstance(priority, bool) or not isinstance(priority, int)
         ):
             raise ValueError(f"'buyers[{index}].priority' must be an int")
-    if any(
+    if coaches or any(
         str(buyer.get("strategy", "deterministic")).lower() == "llm"
-        for buyer in buyers
+        for buyer in buyer_list
     ):
         validate_global_llm(config.get("llm"))
 

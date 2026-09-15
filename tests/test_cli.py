@@ -628,6 +628,8 @@ def test_legacy_root_config_removed():
 class FakeLlmClient:
     """Scripted LlmClient replacement for CLI tests (no network)."""
 
+    instances: list["FakeLlmClient"] = []
+
     def __init__(
         self,
         base_url,
@@ -644,9 +646,12 @@ class FakeLlmClient:
         self.base_url = search.get("base_url") if search else None
         self.api_key = search.get("api_key") if search else None
         self.model = search.get("model") if search else None
+        self.messages_seen = []
+        FakeLlmClient.instances.append(self)
 
     def chat(self, messages, tools, model, temperature):
         self.calls += 1
+        self.messages_seen.append(messages)
         return {
             "content": "",
             "tool_calls": [
@@ -1124,8 +1129,9 @@ def test_cli_llm_exhaustion_writes_checkpoint_and_sidecar(monkeypatch, tmp_path)
     assert data["llm"]["model"] == "gpt-4o-mini"
     assert data["llm"]["api_key_env"] == "TEST_LLM_API_KEY"
     assert "sk-" not in sidecar.read_text(encoding="utf-8")
-    # b1 has no per-buyer block in the config, so none is written
-    assert data["buyers"] == {}
+    rendered = data["buyers"]["b1"]["llm"]["system_prompt"]
+    assert rendered.startswith("Sei un allenatore-manager")
+    assert "P: 3, D: 8, C: 8, A: 6" in rendered
 
 
 def test_cli_deterministic_exhaustion_writes_no_sidecar(tmp_path):
@@ -1222,6 +1228,11 @@ def test_cli_second_exhaustion_propagates_sidecar(monkeypatch, tmp_path):
         cli_module, "_trace_run_dir", lambda logs_dir=None: tmp_path / "traces" / "resume"
     )
     checkpoint = make_llm_checkpoint(tmp_path, no_progress=True)
+    payload = llm_sidecar_payload()
+    payload["buyers"]["incomplete"]["llm"]["system_prompt"] = "PROMPT DAL SIDECAR"
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(payload), encoding="utf-8"
+    )
 
     exit_code = main(["--resume", str(checkpoint)])
 
@@ -1232,4 +1243,101 @@ def test_cli_second_exhaustion_propagates_sidecar(monkeypatch, tmp_path):
     assert sidecar.exists()
     data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
     assert data["schema_version"] == 1
-    assert data["buyers"]["incomplete"]["llm"] == {"temperature": 0.3}
+    assert data["buyers"]["incomplete"]["llm"] == {
+        "temperature": 0.3,
+        "system_prompt": "PROMPT DAL SIDECAR",
+    }
+
+
+def test_cli_discovers_coaches_and_writes_resolved_sidecar(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    write_workbook(workbook, {"A": 1})
+    coaches = tmp_path / "coaches"
+    coaches.mkdir()
+    (coaches / "coachAgent_Joe.md").write_text(
+        "---\nmodel: gpt-4o-mini\ntemperature: 0.2\n---\n\nJoe è aggressivo.\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.yaml"
+    data = base_llm_config(workbook)
+    data.pop("buyers")
+    data["paths"]["coaches"] = str(coaches)
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
+    checkpoint = tmp_path / "checkpoint.json"
+
+    exit_code = main([
+        "--config", str(config),
+        "--checkpoint", str(checkpoint),
+    ])
+
+    assert exit_code == 1
+    sidecar = yaml.safe_load(
+        (tmp_path / "checkpoint.llm.yaml").read_text(encoding="utf-8")
+    )
+    joe = sidecar["buyers"]["joe"]["llm"]
+    assert joe["temperature"] == 0.2
+    assert joe["system_prompt"].startswith("Sei un allenatore-manager")
+    assert "Joe è aggressivo." in joe["system_prompt"]
+    assert "P: 3, D: 8, C: 8, A: 6" in joe["system_prompt"]
+
+
+def test_cli_resume_uses_stored_system_prompt(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    monkeypatch.setattr(
+        cli_module, "_trace_run_dir", lambda logs_dir=None: tmp_path / "traces" / "resume"
+    )
+    FakeLlmClient.instances.clear()
+    checkpoint = make_llm_checkpoint(tmp_path)
+    payload = llm_sidecar_payload()
+    payload["buyers"]["incomplete"]["llm"]["system_prompt"] = "PROMPT DAL SIDECAR"
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(payload), encoding="utf-8"
+    )
+
+    exit_code = main([
+        "--resume", str(checkpoint),
+        "--config", str(tmp_path / "missing.yaml"),
+        "--output", str(tmp_path / "report.json"),
+    ])
+
+    assert exit_code == 0
+    prompts = [
+        client.messages_seen[0][0]["content"]
+        for client in FakeLlmClient.instances
+    ]
+    assert prompts == ["PROMPT DAL SIDECAR"]
+
+
+def test_cli_rejects_empty_buyers_without_coaches(monkeypatch, tmp_path):
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"A": 1})
+    data = base_llm_config(workbook)
+    data["buyers"] = []
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("when 'paths.coaches' is not set" in error for error in errors)
+
+
+def test_cli_rejects_duplicate_buyer_and_coach_ids(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    write_workbook(workbook, {"A": 1})
+    coaches = tmp_path / "coaches"
+    coaches.mkdir()
+    (coaches / "coachAgent_b1.md").write_text("body", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    data = base_llm_config(workbook)
+    data["paths"]["coaches"] = str(coaches)
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any("Duplicate buyer ids" in error for error in errors)

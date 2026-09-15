@@ -26,52 +26,23 @@ class CoachAgent:
         *,
         model: str,
         temperature: float,
-        role: str | None = None,
-        personality: str | None = None,
-        system_prompt: str | None = None,
+        system_prompt: str,
         max_tool_iterations: int = 3,
         tools: tuple[str, ...] = DEFAULT_TOOLS,
-        spending_profile: dict[str, float] | None = None,
-        target_players: list[str] | None = None,
     ):
         if not buyer_id or not name:
             raise ValueError("buyer_id and name are required")
+        if not system_prompt.strip():
+            raise ValueError("system_prompt is required")
         self.buyer_id = buyer_id
         self.name = name
         self.client = client
         self.tracer = tracer
         self.model = model
         self.temperature = temperature
-        self.role = role or "fantallenatore esperto"
-        self.personality = personality or "equilibrata"
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
         self.tools = tools
-        self.spending_profile = spending_profile
-        self.target_players = target_players or []
-
-    def _system_prompt(self) -> str:
-        if self.system_prompt:
-            return self.system_prompt
-        lines = [
-            "Sei un allenatore-manager che partecipa a un'asta del gioco fantacalcio.",
-            f"Ruolo: {self.role}. Personalità: {self.personality}.",
-        ]
-        if self.spending_profile:
-            spending = ", ".join(
-                f"{position}: {share:.0%}"
-                for position, share in self.spending_profile.items()
-            )
-            lines.append(f"Distribuzione di spesa ideale per ruolo: {spending}.")
-        if self.target_players:
-            lines.append(
-                f"Giocatori obiettivo: {', '.join(self.target_players)}."
-            )
-        lines.append(
-            "Usa gli strumenti a disposizione: puoi cercare ulteriori info, notizie sul giocatore "
-            "con search_info e inviare la tua offerta con submit_bid (0 = passo)."
-        )
-        return "\n".join(lines)
 
     def _context(self, player: Player, squad: Squad) -> dict:
         return {
@@ -134,7 +105,7 @@ class CoachAgent:
         context = self._context(player, squad)
         self.tracer.event(player.id, "context", content=context)
         messages: list[dict] = [
-            {"role": "system", "content": self._system_prompt()},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": self._user_message(context)},
         ]
         tool_schemas = [

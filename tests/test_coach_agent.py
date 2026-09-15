@@ -39,7 +39,8 @@ def make_manager(tmp_path, client, **kwargs):
     tracer = TraceLogger(tmp_path / "traces", "buyer_1")
     manager = CoachAgent(
         "buyer_1", "Alpha", client, tracer,
-        model="gpt-4o-mini", temperature=0.7, **kwargs,
+        model="gpt-4o-mini", temperature=0.7,
+        system_prompt="Sei un coach di prova.", **kwargs,
     )
     return manager, tmp_path / "traces" / "buyer_1.jsonl"
 
@@ -163,12 +164,13 @@ def test_context_trace_contains_full_payload(tmp_path):
     assert first["content"]["missing_roles"] == {"P": 3, "D": 8, "C": 8, "A": 6}
 
 
-def test_custom_system_prompt_replaces_template(tmp_path):
+def test_system_prompt_is_sent_as_first_message(tmp_path):
     client = FakeClient([chat_response(tool_call("submit_bid", {"amount": 5}))])
-    manager, _ = make_manager(
-        tmp_path, client, system_prompt="Sei un esperto di portieri."
-    )
+    manager, _ = make_manager(tmp_path, client)
 
     manager.bid(make_player(), make_squad())
 
-    assert client.messages_seen[0][0]["content"] == "Sei un esperto di portieri."
+    assert client.messages_seen[0][0] == {
+        "role": "system",
+        "content": "Sei un coach di prova.",
+    }

@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from agents.coach_loader import load_buyer_configs
 from benchmark.metrics import (
     aggregate_metrics,
     compute_run_metrics,
@@ -44,7 +45,7 @@ def run_benchmark(
     players = ExcelHandler(Path(paths["players"])).load_players()
     base_seed = args.seed if args.seed is not None else int(simulation["seed"])
     budget = int(simulation.get("budget", 500))
-    buyer_configs = list(config.get("buyers", []))
+    buyer_configs = load_buyer_configs(config)
     llm_config = config.get("llm")
 
     root = (
@@ -69,6 +70,7 @@ def run_benchmark(
                 seed_i,
                 llm_config=llm_config,
                 run_dir=run_dir / "traces",
+                budget=budget,
             ),
             budget=budget,
             seed=seed_i,

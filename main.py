@@ -14,6 +14,8 @@ from loguru import logger
 
 from agents.buyer_agent import DeterministicBidder, RandomBidder
 from agents.coach_agent import CoachAgent
+from agents.coach_loader import load_buyer_configs
+from agents.coach_prompt import render_system_prompt
 from agents.llm_client import LlmClient
 from agents.trace import TraceLogger
 from benchmark.runner import run_benchmark
@@ -101,6 +103,7 @@ def _build_bidders(
     seed: int | None,
     llm_config: dict[str, Any] | None = None,
     run_dir: Path | None = None,
+    budget: int = 500,
 ):
     if not configs:
         raise ValueError("At least one buyer must be configured")
@@ -137,13 +140,17 @@ def _build_bidders(
                     tracer=TraceLogger(run_dir, buyer_id),
                     model=str(merged["model"]),
                     temperature=float(merged.get("temperature", 0.7)),
-                    role=merged.get("role"),
-                    personality=merged.get("personality"),
-                    system_prompt=merged.get("system_prompt"),
+                    system_prompt=render_system_prompt(
+                        budget=budget,
+                        profile=config.get("profile"),
+                        role=merged.get("role"),
+                        personality=merged.get("personality"),
+                        spending_profile=merged.get("spending_profile"),
+                        target_players=merged.get("target_players"),
+                        override=merged.get("system_prompt"),
+                    ),
                     max_tool_iterations=int(merged.get("max_tool_iterations", 3)),
                     tools=tuple(merged.get("tools", CoachAgent.DEFAULT_TOOLS)),
-                    spending_profile=merged.get("spending_profile"),
-                    target_players=merged.get("target_players"),
                 )
             )
         else:
@@ -159,6 +166,7 @@ def _write_llm_sidecar(
     checkpoint_path: Path,
     buyer_configs: list[dict[str, Any]],
     llm_config: dict[str, Any],
+    budget: int,
 ) -> Path | None:
     """Write the LLM sidecar next to a checkpoint; None when no llm buyer."""
     llm_buyers = [
@@ -168,16 +176,30 @@ def _write_llm_sidecar(
     ]
     if not llm_buyers:
         return None
+    resolved: dict[str, dict[str, Any]] = {}
+    for buyer in llm_buyers:
+        buyer_llm = buyer.get("llm") or {}
+        merged = {**(llm_config or {}), **buyer_llm}
+        # Per-buyer blocks with the fully resolved prompt; api_key_env is
+        # a variable name, never the key itself.
+        resolved[str(buyer["id"])] = {
+            "llm": {
+                **buyer_llm,
+                "system_prompt": render_system_prompt(
+                    budget=budget,
+                    profile=buyer.get("profile"),
+                    role=merged.get("role"),
+                    personality=merged.get("personality"),
+                    spending_profile=merged.get("spending_profile"),
+                    target_players=merged.get("target_players"),
+                    override=merged.get("system_prompt"),
+                ),
+            }
+        }
     payload = {
         "schema_version": 1,
         "llm": llm_config,
-        # Per-buyer blocks, only where present in the config; api_key_env is
-        # a variable name, never the key itself.
-        "buyers": {
-            str(buyer["id"]): {"llm": buyer["llm"]}
-            for buyer in llm_buyers
-            if buyer.get("llm")
-        },
+        "buyers": resolved,
     }
     path = _sidecar_path(checkpoint_path)
     path.write_text(
@@ -279,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
                 source.simulation.seed,
                 llm_config=llm_config,
                 run_dir=_trace_run_dir(None),
+                budget=source.simulation.budget,
             )
             engine = AuctionEngine.from_checkpoint(source, bidders)
             output_path = as_file_path(
@@ -317,13 +340,14 @@ def main(argv: list[str] | None = None) -> int:
             )
 
             players = ExcelHandler(players_path).load_players()
-            buyer_configs = list(config.get("buyers", []))
+            buyer_configs = load_buyer_configs(config)
             llm_config = config.get("llm")
             bidders = _build_bidders(
                 buyer_configs,
                 seed,
                 llm_config=llm_config,
                 run_dir=_trace_run_dir(paths.get("logs")),
+                budget=budget,
             )
             simulation_snapshot = SimulationSnapshot(budget=budget, seed=seed)
             buyer_snapshots = [
@@ -358,7 +382,10 @@ def main(argv: list[str] | None = None) -> int:
         if llm_config is not None:
             try:
                 sidecar_path = _write_llm_sidecar(
-                    saved, buyer_configs, llm_config
+                    saved,
+                    buyer_configs,
+                    llm_config,
+                    simulation_snapshot.budget,
                 )
                 if sidecar_path is not None:
                     logger.info("LLM sidecar saved to {}", sidecar_path)

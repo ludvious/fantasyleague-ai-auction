@@ -71,3 +71,36 @@ def test_benchmark_records_incomplete_runs(monkeypatch, tmp_path):
 
 def test_benchmark_rejects_zero_runs():
     assert main(["benchmark", "--runs", "0"]) == 1
+
+
+def test_benchmark_with_coaches_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    coaches = tmp_path / "coaches"
+    coaches.mkdir()
+    (coaches / "coachAgent_Joe.md").write_text(
+        "---\nmodel: gpt-4o-mini\n"
+        "spending_profile: {P: 0.1, D: 0.2, C: 0.3, A: 0.4}\n---\n\nJoe.\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.yaml"
+    data = base_llm_config(workbook)
+    data.pop("buyers")
+    data["paths"]["coaches"] = str(coaches)
+    write_raw_config(config, data)
+    root = tmp_path / "bench"
+
+    exit_code = main([
+        "benchmark",
+        "--config", str(config),
+        "--runs", "1",
+        "--seed", "42",
+        "--output", str(root),
+    ])
+
+    assert exit_code == 0
+    metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["aggregates"]["joe"]["roster_complete"]["mean"] == 1.0
+    assert metrics["runs"][0]["buyers"]["joe"]["model"] == "gpt-4o-mini"
