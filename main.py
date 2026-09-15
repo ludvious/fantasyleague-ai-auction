@@ -34,6 +34,22 @@ from utils.logger import setup_logger
 DEFAULT_CONFIG = Path("configs/default.yaml")
 
 
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Load KEY=VALUE pairs from path; existing environment variables win."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+
+
 def _trace_run_dir(logs_dir: str | Path | None) -> Path:
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     return Path(logs_dir or "logs") / "traces" / run_id
@@ -259,6 +275,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_dotenv()
     args = _parser().parse_args(argv)
     if args.command == "benchmark":
         return run_benchmark(args, _build_bidders)

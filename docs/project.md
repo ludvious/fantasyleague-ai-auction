@@ -36,7 +36,7 @@ The deterministic auction MVP is implemented and P1–P4 are complete:
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **207 tests passed**;
+- `venv/bin/pytest -q -W error`: **210 tests passed**;
 - real-workbook simulation: **100 players sold**, **37 unsold**, and **4
   complete squads** of 25 players.
 
@@ -136,6 +136,11 @@ reads these fields:
 discovered coaches). Live search is optional: a missing or placeholder search
 key disables live search (the `search_info` tool returns
 `search non disponibile`).
+
+At startup `main()` loads a gitignored `.env` file from the working directory
+into `os.environ` (real shell variables win; template: `.env.example`); keys
+are still referenced only by variable name, never written into configs or
+sidecars.
 
 Coaches discovered from `paths.coaches` are buyer entries whose
 `coachAgent_*.md` front-matter accepts the same field names as `buyers[].llm`

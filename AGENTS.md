@@ -37,7 +37,7 @@ venv/bin/python main.py benchmark --config configs/llm.yaml --runs 2
 
 ## Secrets
 
-- API keys NEVER appear in config files or sidecars — only env-var *names* (`llm.api_key_env`, `llm.search.api_key_env`; legacy `llm.brave.api_key_env` still accepted). `validate_global_llm` rejects a literal `api_key` field. Read the key via `os.environ` only.
+- API keys NEVER appear in config files or sidecars — only env-var *names* (`llm.api_key_env`, `llm.search.api_key_env`; legacy `llm.brave.api_key_env` still accepted). `validate_global_llm` rejects a literal `api_key` field. Read the key via `os.environ` only; `main()` calls `_load_dotenv()`, which loads a gitignored `.env` from the cwd (real shell variables win).
 - LLM key: `OPENCODE_API_KEY` in the example config; a missing LLM key is a pre-auction error. Live search is optional — `llm.search` with `responses`/`anthropic`/`brave` providers (legacy `llm.brave` block still accepted); a missing key or failed request just degrades to `search non disponibile`.
 
 ## CoachAgent (LLM bidders)

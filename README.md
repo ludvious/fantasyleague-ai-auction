@@ -172,7 +172,9 @@ price, and updated roster, losers a `lost` event, all traced as
 `auction_result`. The API key is read from the environment variable named by
 `llm.api_key_env` (`OPENCODE_API_KEY` in the example); only the variable name
 may appear in configuration files and sidecars. A missing variable is a
-pre-auction error.
+pre-auction error. At startup the CLI automatically loads a gitignored `.env`
+file from the working directory (real shell variables win); copy
+`.env.example` and fill in the key instead of exporting it on every run.
 
 `search_info` is configured through the optional `llm.search` block, which
 supports the `responses`, `anthropic`, and `brave` providers. The native

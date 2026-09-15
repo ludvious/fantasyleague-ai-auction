@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -1341,3 +1342,55 @@ def test_cli_rejects_duplicate_buyer_and_coach_ids(monkeypatch, tmp_path):
 
     assert main(["--config", str(config)]) == 1
     assert any("Duplicate buyer ids" in error for error in errors)
+
+
+# — .env loading —
+
+
+def test_load_dotenv_sets_missing_vars_and_keeps_shell_values(monkeypatch, tmp_path):
+    for name in ("TEST_DOTENV_KEY", "TEST_DOTENV_UNQUOTED"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TEST_DOTENV_EXISTING", "shell")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# comment\n"
+        "\n"
+        "export TEST_DOTENV_KEY=\"from-file\"\n"
+        "TEST_DOTENV_UNQUOTED='single-quoted'\n"
+        "TEST_DOTENV_EXISTING=from-file\n"
+        "MALFORMED_LINE\n",
+        encoding="utf-8",
+    )
+
+    cli_module._load_dotenv(env_file)
+
+    assert os.environ["TEST_DOTENV_KEY"] == "from-file"
+    assert os.environ["TEST_DOTENV_UNQUOTED"] == "single-quoted"
+    assert os.environ["TEST_DOTENV_EXISTING"] == "shell"
+
+
+def test_load_dotenv_missing_file_is_a_noop(tmp_path):
+    cli_module._load_dotenv(tmp_path / "missing.env")
+
+
+def test_cli_reads_api_key_from_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("TEST_DOTENV_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    data = base_llm_config(workbook)
+    data["llm"].pop("brave")
+    data["llm"]["api_key_env"] = "TEST_DOTENV_LLM_API_KEY"
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
+    (tmp_path / ".env").write_text(
+        "TEST_DOTENV_LLM_API_KEY=from-dotenv\n", encoding="utf-8"
+    )
+
+    exit_code = main(["--config", str(config), "--output", str(report)])
+
+    assert exit_code == 0
+    assert report.exists()
