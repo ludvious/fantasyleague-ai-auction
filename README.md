@@ -125,7 +125,7 @@ paths:
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "gpt-5.6-luna"
+  model: "deepseek-v4-flash"
   temperature: 0.7
   timeout_seconds: 30
   # Header applicati a tutte le richieste. x-opencode-session è richiesto
@@ -134,7 +134,7 @@ llm:
   #   x-opencode-session: "asta-2026"
   search:
     provider: "responses"
-    model: "gpt-5.6-luna"
+    model: "deepseek-v4-flash"
     # base_url e api_key_env ereditano da llm sopra; max_output_tokens
     # default 400. Altri provider:
     #   anthropic → provider + model (base_url default https://api.anthropic.com)
@@ -145,7 +145,7 @@ Adding a coach means adding a markdown file, without touching the YAML:
 
 ```markdown
 ---
-model: "gpt-5.6-luna"
+model: "deepseek-v4-flash"
 temperature: 0.7
 spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
 target_players: ["Lautaro Martínez"]

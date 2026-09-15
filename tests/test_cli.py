@@ -690,7 +690,7 @@ def search_llm_config(workbook: Path) -> dict:
     data["llm"].pop("brave")
     data["llm"]["search"] = {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     return data
 
@@ -916,7 +916,7 @@ def test_cli_resolves_search_config_with_defaults(monkeypatch):
         "api_key_env": "TEST_LLM_API_KEY",
         "search": {
             "provider": "responses",
-            "model": "gpt-5.6-luna",
+            "model": "deepseek-v4-flash",
             "api_key_env": "TEST_SEARCH_API_KEY",
         },
     }
@@ -926,7 +926,7 @@ def test_cli_resolves_search_config_with_defaults(monkeypatch):
     assert client.provider == "responses"
     assert client.base_url == "https://api.test/v1"
     assert client.api_key == "search-dummy"
-    assert client.model == "gpt-5.6-luna"
+    assert client.model == "deepseek-v4-flash"
     assert client.extra_headers["x-opencode-session"].startswith("fantasyleague-")
 
 
@@ -988,7 +988,7 @@ def test_cli_search_passes_through_max_tokens_and_headers(monkeypatch):
         "api_key_env": "TEST_LLM_API_KEY",
         "search": {
             "provider": "responses",
-            "model": "gpt-5.6-luna",
+            "model": "deepseek-v4-flash",
             "max_output_tokens": 123,
             "headers": {"x-custom": "custom-value"},
         },
@@ -1051,7 +1051,7 @@ def search_sidecar_payload() -> dict:
     payload["llm"].pop("brave")
     payload["llm"]["search"] = {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     return payload
 
@@ -1103,7 +1103,7 @@ def test_cli_exhaustion_sidecar_contains_search_block(monkeypatch, tmp_path):
     )
     assert data["llm"]["search"] == {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     assert "api_key" not in data["llm"]["search"]
 

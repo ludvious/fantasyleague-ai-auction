@@ -15,8 +15,8 @@ function calling) is untouched. Verified live against OpenCode Go during the
   (`title — url`) extracted from citations. Brave keeps today's
   `title — url` list unchanged.
 - `configs/llm.yaml` example moves entirely to OpenCode Go: bidding on
-  `/chat/completions` (OpenAI format, e.g. `gpt-5.6-luna`), search on `/responses`
-  with `gpt-5.6-luna`, single `OPENCODE_API_KEY`.
+  `/chat/completions` (OpenAI format, e.g. `deepseek-v4-flash`), search on `/responses`
+  with `deepseek-v4-flash`, single `OPENCODE_API_KEY`.
 - Single shared `httpx.Client` per run; search requests use full URLs like
   today's Brave GET. No new files, no backend classes: provider dispatch is
   three branches inside `LlmClient.search_news` (chosen over a
@@ -42,12 +42,12 @@ function calling) is untouched. Verified live against OpenCode Go during the
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "gpt-5.6-luna"
+  model: "deepseek-v4-flash"
   headers:                    # optional, applied to every request
     x-opencode-session: "…"  # optional; auto per-run default if omitted
   search:                     # optional; replaces llm.brave
     provider: "responses"    # required: responses | anthropic | brave
-    model: "gpt-5.6-luna"    # required for responses/anthropic
+    model: "deepseek-v4-flash"    # required for responses/anthropic
     base_url: "…"            # optional, per-provider default
     api_key_env: "…"         # optional, inherits llm.api_key_env
     max_output_tokens: 400   # optional, default 400

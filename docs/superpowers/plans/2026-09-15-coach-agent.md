@@ -1102,18 +1102,18 @@ paths:
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "gpt-5.6-luna"
+  model: "deepseek-v4-flash"
   temperature: 0.7
   timeout_seconds: 30
   search:
     provider: "responses"
-    model: "gpt-5.6-luna"
+    model: "deepseek-v4-flash"
 ```
 
 `agents/coachAgent_Alfa.md`:
 ```markdown
 ---
-model: "gpt-5.6-luna"
+model: "deepseek-v4-flash"
 temperature: 0.7
 spending_profile:
   P: 0.08

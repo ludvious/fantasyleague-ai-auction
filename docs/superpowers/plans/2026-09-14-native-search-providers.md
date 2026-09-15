@@ -304,7 +304,7 @@ def responses_search(**overrides):
         "provider": "responses",
         "base_url": "https://search.test",
         "api_key": "search-key",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     config.update(overrides)
     return config
@@ -316,7 +316,7 @@ def test_search_news_responses_posts_web_search_tool_and_formats():
         assert request.url.host == "search.test"
         assert request.url.path == "/responses"
         assert request.headers["Authorization"] == "Bearer search-key"
-        assert body["model"] == "gpt-5.6-luna"
+        assert body["model"] == "deepseek-v4-flash"
         assert body["tools"] == [{"type": "web_search"}]
         assert "Lautaro infortunio" in body["input"]
         assert body["max_output_tokens"] == 400
@@ -649,7 +649,7 @@ def search_llm_config(workbook: Path) -> dict:
     data["llm"].pop("brave")
     data["llm"]["search"] = {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     return data
 ```
@@ -756,7 +756,7 @@ def test_cli_resolves_search_config_with_defaults(monkeypatch):
         "api_key_env": "TEST_LLM_API_KEY",
         "search": {
             "provider": "responses",
-            "model": "gpt-5.6-luna",
+            "model": "deepseek-v4-flash",
             "api_key_env": "TEST_SEARCH_API_KEY",
         },
     }
@@ -766,7 +766,7 @@ def test_cli_resolves_search_config_with_defaults(monkeypatch):
     assert client.provider == "responses"
     assert client.base_url == "https://api.test/v1"
     assert client.api_key == "search-dummy"
-    assert client.model == "gpt-5.6-luna"
+    assert client.model == "deepseek-v4-flash"
     assert client.extra_headers["x-opencode-session"].startswith("fantasyleague-")
 ```
 
@@ -1022,7 +1022,7 @@ def search_sidecar_payload() -> dict:
     payload["llm"].pop("brave")
     payload["llm"]["search"] = {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     return payload
 
@@ -1074,7 +1074,7 @@ def test_cli_exhaustion_sidecar_contains_search_block(monkeypatch, tmp_path):
     )
     assert data["llm"]["search"] == {
         "provider": "responses",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     assert "api_key" not in data["llm"]["search"]
 ```
@@ -1119,7 +1119,7 @@ Replace the `llm:` block (lines 33-41) with:
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "gpt-5.6-luna"
+  model: "deepseek-v4-flash"
   temperature: 0.7
   timeout_seconds: 30
   # Header applicati a tutte le richieste. x-opencode-session è richiesto
@@ -1128,14 +1128,14 @@ llm:
   #   x-opencode-session: "asta-2026"
   search:
     provider: "responses"
-    model: "gpt-5.6-luna"
+    model: "deepseek-v4-flash"
     # base_url e api_key_env ereditano da llm sopra; max_output_tokens
     # default 400. Altri provider:
     #   anthropic → provider + model (base_url default https://api.anthropic.com)
     #   brave     → search classica "titolo — url" (provider + api_key_env)
 ```
 
-Update every buyer's `model: "gpt-4o-mini"` to `model: "gpt-5.6-luna"` (4 occurrences) and the header comment listing buyer fields is unchanged.
+Update every buyer's `model: "gpt-4o-mini"` to `model: "deepseek-v4-flash"` (4 occurrences) and the header comment listing buyer fields is unchanged.
 
 - [ ] **Step 2: Update `docs/project.md`**
 

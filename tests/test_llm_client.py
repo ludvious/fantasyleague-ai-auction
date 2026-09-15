@@ -183,7 +183,7 @@ def responses_search(**overrides):
         "provider": "responses",
         "base_url": "https://search.test",
         "api_key": "search-key",
-        "model": "gpt-5.6-luna",
+        "model": "deepseek-v4-flash",
     }
     config.update(overrides)
     return config
@@ -195,7 +195,7 @@ def test_search_info_responses_posts_web_search_tool_and_formats():
         assert request.url.host == "search.test"
         assert request.url.path == "/responses"
         assert request.headers["Authorization"] == "Bearer search-key"
-        assert body["model"] == "gpt-5.6-luna"
+        assert body["model"] == "deepseek-v4-flash"
         assert body["tools"] == [{"type": "web_search"}]
         assert "Lautaro infortunio" in body["input"]
         assert body["max_output_tokens"] == 400

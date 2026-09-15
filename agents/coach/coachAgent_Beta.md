@@ -1,5 +1,5 @@
 ---
-model: "gpt-5.6-luna"
+model: "deepseek-v4-flash"
 temperature: 0.8
 spending_profile:
   P: 0.05
