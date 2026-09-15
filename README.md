@@ -112,12 +112,16 @@ configuration errors, invalid checkpoint data, file errors, or unexpected
 auction errors. Only pool exhaustion writes a resumable checkpoint; other
 failures do not write one.
 
-## LLM bidders
+## CoachAgent (LLM bidders)
 
-`configs/llm.yaml` is the example configuration for LLM-driven bidders. It
-adds a global `llm` block and a per-buyer `llm` block:
+`configs/llm.yaml` is the example configuration for CoachAgent-driven
+auctions. Coaches are auto-discovered as `coachAgent_*.md` files in the
+directory named by `paths.coaches` (the example points at `agents/`):
 
 ```yaml
+paths:
+  coaches: "agents"
+
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
@@ -135,23 +139,40 @@ llm:
     # default 400. Altri provider:
     #   anthropic → provider + model (base_url default https://api.anthropic.com)
     #   brave     → search classica "titolo — url" (provider + api_key_env)
-
-buyers:
-  - id: "buyer_1"
-    name: "Squadra Alfa"
-    strategy: "llm"
-    llm:
-      role: "fantallenatore esperto"
-      personality: "prudente"
-      spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
 ```
 
-Each `strategy: "llm"` buyer is an `AgentManager` that loops over
-OpenAI-compatible `chat` calls with the fixed tool set
-`{search_info, submit_bid}` until it returns a valid bid. The API key is read
-from the environment variable named by `llm.api_key_env` (`OPENCODE_API_KEY` in
-the example); only the variable name may appear in configuration files and
-sidecars. A missing variable is a pre-auction error.
+Adding a coach means adding a markdown file, without touching the YAML:
+
+```markdown
+---
+model: "glm-5.3"
+temperature: 0.7
+spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
+target_players: ["Lautaro Martínez"]
+---
+
+Sei il coach della Squadra Alfa. Stile prudente: ...
+```
+
+The filename derives the coach id (`coachAgent_Alfa.md` → `alfa`); the optional
+front-matter carries technical fields (`model`, `temperature`,
+`max_tool_iterations`, `tools`, `spending_profile`, `target_players`,
+`system_prompt`) validated with the LLM contract, and the markdown body is the
+agent profile. The system prompt is the shared `agents/prompts/common.md`
+(regulation rendered from the domain) plus the profile; an explicit
+`system_prompt` replaces it entirely. YAML `buyers` still work, and remain
+required for `deterministic`/`random` bidders.
+
+Each coach loops over OpenAI-compatible `chat` calls with the fixed tool set
+`{search_info, submit_bid}` until it returns a bid that passes
+`Squad.validate_bid`; the domain error goes back to the model for a retry.
+Reasoning is traced and logged at INFO. After every resolved lot the engine
+notifies the polled coaches through `observe`: winners receive the player,
+price, and updated roster, losers a `lost` event, all traced as
+`auction_result`. The API key is read from the environment variable named by
+`llm.api_key_env` (`OPENCODE_API_KEY` in the example); only the variable name
+may appear in configuration files and sidecars. A missing variable is a
+pre-auction error.
 
 `search_info` is configured through the optional `llm.search` block, which
 supports the `responses`, `anthropic`, and `brave` providers. The native
@@ -165,7 +186,7 @@ request, degrades to the tool message `search non disponibile`. Like the LLM
 key, the search key never appears in configuration files or sidecars, only
 the variable name.
 
-Every LLM buyer writes one JSON object per event to
+Every coach writes one JSON object per event to
 `logs/traces/<run_dir>/<buyer_id>.jsonl`; the `<run_dir>` is chosen by the
 caller, never by the engine.
 
@@ -173,11 +194,12 @@ caller, never by the engine.
 
 When a checkpoint contains `strategy: "llm"` buyers, the CLI writes an
 auto-generated `checkpoint.llm.yaml` sidecar next to it (`schema_version: 1`)
-with the global `llm` block and the per-buyer `llm` blocks. Resuming such a
-checkpoint requires the sidecar; a missing or invalid sidecar exits `1` before
-the auction starts. With `--resume`, the checkpoint plus sidecar are the only
-inputs: `--config` stays ignored. A second pool exhaustion propagates the
-sidecar next to the new checkpoint.
+with the global `llm` block and one per-buyer `llm` block carrying the fully
+resolved `system_prompt`. Resuming such a checkpoint requires the sidecar; a
+missing or invalid sidecar exits `1` before the auction starts. With
+`--resume`, the checkpoint plus sidecar are the only inputs: `--config` (and
+the original `coachAgent_*.md` files) stay unread. A second pool exhaustion
+propagates the sidecar next to the new checkpoint.
 
 ## Benchmark
 
