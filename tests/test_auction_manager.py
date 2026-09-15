@@ -4,7 +4,14 @@ import pytest
 
 from agents.buyer_agent import DeterministicBidder
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
-from core.models import AuctionStatus, Player, PlayerStatus, Position
+from core.models import (
+    AuctionState,
+    AuctionStatus,
+    Player,
+    PlayerStatus,
+    Position,
+    Squad,
+)
 
 
 def make_player(player_id: str, role: str) -> Player:
@@ -25,6 +32,9 @@ class ZeroBidder:
     def bid(self, player, squad):
         return 0
 
+    def observe(self, result, squad):
+        pass
+
 
 class FixedBidder:
     def __init__(self, buyer_id: str, name: str, bid_value):
@@ -35,6 +45,9 @@ class FixedBidder:
     def bid(self, player, squad):
         return self.bid_value
 
+    def observe(self, result, squad):
+        pass
+
 
 class RaisingBidder:
     def __init__(self, buyer_id: str, name: str):
@@ -43,6 +56,9 @@ class RaisingBidder:
 
     def bid(self, player, squad):
         raise RuntimeError("bidder exploded")
+
+    def observe(self, result, squad):
+        pass
 
 
 
@@ -334,6 +350,9 @@ class SlowBidder:
         time.sleep(self.delay)
         return self.bid_value
 
+    def observe(self, result, squad):
+        pass
+
 
 def test_parallel_collect_bids_matches_sequential_outcome():
     player = make_player("a", "A")
@@ -399,3 +418,59 @@ def test_partial_report_exposes_incomplete_state():
 
     assert report.document_type == "auction_report"
     assert report.players_sold == 1
+
+
+class RecordingBidder:
+    def __init__(self, buyer_id: str, bid_value: int):
+        self.buyer_id = buyer_id
+        self.name = buyer_id
+        self.bid_value = bid_value
+        self.observed = []
+
+    def bid(self, player, squad):
+        return self.bid_value
+
+    def observe(self, result, squad):
+        self.observed.append(
+            {
+                "player": result.player.id,
+                "winner": result.winner_id,
+                "squad": squad.buyer_id,
+            }
+        )
+
+
+def test_engine_notifies_winner_and_losers():
+    players = [make_player("p1", "A")]
+    winner = RecordingBidder("winner", 5)
+    loser = RecordingBidder("loser", 3)
+    engine = AuctionEngine(players, [winner, loser], budget=30, seed=1)
+
+    engine.auction_player(players[0])
+
+    assert winner.observed == [
+        {"player": "p1", "winner": "winner", "squad": "winner"}
+    ]
+    assert loser.observed == [
+        {"player": "p1", "winner": "winner", "squad": "loser"}
+    ]
+
+
+def test_engine_skips_notification_for_full_roles():
+    players = [make_player(f"a{index}", "A") for index in range(7)]
+    state = AuctionState(players=players, squads={})
+    full = Squad(buyer_id="full", name="Full", budget_initial=30)
+    for player in players[:6]:
+        full.add_player(player.model_copy(deep=True), 1)
+    state.squads["full"] = full
+    state.squads["other"] = Squad(buyer_id="other", name="Other", budget_initial=30)
+    full_bidder = RecordingBidder("full", 5)
+    other_bidder = RecordingBidder("other", 5)
+    engine = AuctionEngine(
+        players, [full_bidder, other_bidder], budget=30, seed=1, state=state
+    )
+
+    engine.auction_player(players[6])
+
+    assert full_bidder.observed == []
+    assert len(other_bidder.observed) == 1

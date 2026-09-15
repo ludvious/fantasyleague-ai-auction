@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from core.models import Player, Squad
+from core.models import AuctionResult, Player, Squad
 
 
 class DeterministicBidder:
@@ -22,6 +22,9 @@ class DeterministicBidder:
     def bid(self, player: Player, squad: Squad) -> int:
         return min(squad.max_bid_allowed, self.priority + 1)
 
+    def observe(self, result: AuctionResult, squad: Squad) -> None:
+        """Deterministic bidders ignore auction outcomes."""
+
 
 class RandomBidder:
     """Produces reproducible bids from an injected random generator."""
@@ -35,3 +38,6 @@ class RandomBidder:
 
     def bid(self, player: Player, squad: Squad) -> int:
         return self.rng.randint(0, squad.max_bid_allowed)
+
+    def observe(self, result: AuctionResult, squad: Squad) -> None:
+        """Random bidders ignore auction outcomes."""

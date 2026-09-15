@@ -198,8 +198,9 @@ class AuctionEngine:
             issue.message,
         )
 
-    def _collect_bids(self, player: Player) -> dict[str, int]:
+    def _collect_bids(self, player: Player) -> tuple[dict[str, int], list[str]]:
         bids: dict[str, int] = {}
+        active: list[str] = []
         for bidder in self.bidders:
             squad = self.state.squads[bidder.buyer_id]
             eligible = not squad.is_complete and squad.remaining_for(player.position) > 0
@@ -207,6 +208,7 @@ class AuctionEngine:
                 bids[bidder.buyer_id] = 0
                 continue
 
+            active.append(bidder.buyer_id)
             try:
                 bid = bidder.bid(player, squad)
             except Exception as exc:
@@ -227,7 +229,12 @@ class AuctionEngine:
                 continue
 
             bids[bidder.buyer_id] = bid
-        return bids
+        return bids, active
+
+    def _notify(self, result: AuctionResult, active_ids: list[str]) -> None:
+        for bidder in self.bidders:
+            if bidder.buyer_id in active_ids:
+                bidder.observe(result, self.state.squads[bidder.buyer_id])
 
     def _canonical_player(self, player: Player) -> Player:
         for canonical in self.state.players:
@@ -242,7 +249,7 @@ class AuctionEngine:
             raise ValueError(f"Player {player.id} is not available")
 
         self.state.auction_count += 1
-        bids = self._collect_bids(player)
+        bids, active_ids = self._collect_bids(player)
         max_bid = max(bids.values(), default=0)
         positive_winners = [buyer_id for buyer_id, bid in bids.items() if bid == max_bid and bid > 0]
 
@@ -254,9 +261,7 @@ class AuctionEngine:
                 status=AuctionStatus.UNSOLD_NO_BID,
             )
             logger.warning("{}: no positive bids", player.name)
-            return result
-
-        if len(positive_winners) != 1:
+        elif len(positive_winners) != 1:
             player.status = PlayerStatus.UNSOLD
             result = AuctionResult(
                 player=player.model_copy(deep=True),
@@ -264,30 +269,31 @@ class AuctionEngine:
                 status=AuctionStatus.UNSOLD_TIE,
             )
             logger.warning("{}: tied highest bid at {} credits", player.name, max_bid)
-            return result
-
-        winner_id = positive_winners[0]
-        self.state.squads[winner_id].add_player(player, max_bid)
-        transaction = Transaction(
-            player=player.model_copy(deep=True),
-            buyer_id=winner_id,
-            price=max_bid,
-            all_bids=bids,
-        )
-        self.state.transactions.append(transaction)
-        logger.info(
-            "Sold {} to {} for {} credits",
-            player.name,
-            self.state.squads[winner_id].name,
-            max_bid,
-        )
-        return AuctionResult(
-            player=player.model_copy(deep=True),
-            winner_id=winner_id,
-            price=max_bid,
-            all_bids=bids,
-            status=AuctionStatus.SOLD,
-        )
+        else:
+            winner_id = positive_winners[0]
+            self.state.squads[winner_id].add_player(player, max_bid)
+            transaction = Transaction(
+                player=player.model_copy(deep=True),
+                buyer_id=winner_id,
+                price=max_bid,
+                all_bids=bids,
+            )
+            self.state.transactions.append(transaction)
+            logger.info(
+                "Sold {} to {} for {} credits",
+                player.name,
+                self.state.squads[winner_id].name,
+                max_bid,
+            )
+            result = AuctionResult(
+                player=player.model_copy(deep=True),
+                winner_id=winner_id,
+                price=max_bid,
+                all_bids=bids,
+                status=AuctionStatus.SOLD,
+            )
+        self._notify(result, active_ids)
+        return result
 
     def _finish_run(self, ended_at: datetime) -> None:
         self.state.ended_at = ended_at

@@ -16,6 +16,9 @@ class RecordingBidder:
         self.calls.append(player.id)
         return self.bids.get(player.id, 0)
 
+    def observe(self, result, squad):
+        pass
+
 
 def test_resume_auctions_only_unsold_players_and_incomplete_squads():
     checkpoint = make_pool_exhaustion_checkpoint()

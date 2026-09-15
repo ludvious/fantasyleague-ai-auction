@@ -5,7 +5,13 @@ from loguru import logger
 
 from agents.coach_agent import CoachAgent
 from agents.trace import TraceLogger
-from core.models import Player, Position, Squad
+from core.models import (
+    AuctionResult,
+    AuctionStatus,
+    Player,
+    Position,
+    Squad,
+)
 
 
 class FakeClient:
@@ -227,3 +233,46 @@ def test_system_prompt_is_sent_as_first_message(tmp_path):
         "role": "system",
         "content": "Sei un coach di prova.",
     }
+
+
+def test_observe_winner_traces_updated_roster(tmp_path):
+    manager, trace_path = make_manager(tmp_path, FakeClient([]))
+    player = make_player()
+    squad = make_squad()
+    squad.add_player(player, 7)
+    result = AuctionResult(
+        player=player.model_copy(deep=True),
+        winner_id="buyer_1",
+        price=7,
+        all_bids={"buyer_1": 7},
+        status=AuctionStatus.SOLD,
+    )
+
+    manager.observe(result, squad)
+
+    last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last["phase"] == "auction_result"
+    assert last["content"]["outcome"] == "won"
+    assert last["content"]["price"] == 7
+    assert last["content"]["budget_remaining"] == 493
+    assert last["content"]["roster"] == [
+        {"id": "pl_1", "name": "Lautaro", "position": "A"}
+    ]
+    assert last["content"]["missing_roles"]["A"] == 5
+
+
+def test_observe_loser_is_minimal(tmp_path):
+    manager, trace_path = make_manager(tmp_path, FakeClient([]))
+    result = AuctionResult(
+        player=make_player().model_copy(deep=True),
+        winner_id="other",
+        price=3,
+        all_bids={"buyer_1": 0, "other": 3},
+        status=AuctionStatus.SOLD,
+    )
+
+    manager.observe(result, make_squad())
+
+    last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last["phase"] == "auction_result"
+    assert last["content"] == {"outcome": "lost"}

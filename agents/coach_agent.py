@@ -8,7 +8,7 @@ from loguru import logger
 
 from agents.llm_client import LlmClient, TOOL_SCHEMAS
 from agents.trace import TraceLogger
-from core.models import BidValidationError, Player, Squad
+from core.models import AuctionResult, BidValidationError, Player, Squad
 
 
 class CoachAgent:
@@ -102,6 +102,44 @@ class CoachAgent:
         except (TypeError, ValueError):
             count = 5
         return max(1, min(count, 10))
+
+    def observe(self, result: AuctionResult, squad: Squad) -> None:
+        won = result.winner_id == self.buyer_id
+        if won:
+            content: dict = {
+                "outcome": "won",
+                "player": {
+                    "id": result.player.id,
+                    "name": result.player.name,
+                    "position": result.player.position.value,
+                    "team": result.player.team,
+                },
+                "price": result.price,
+                "budget_remaining": squad.budget_remaining,
+                "roster": [
+                    {
+                        "id": owned.id,
+                        "name": owned.name,
+                        "position": owned.position.value,
+                    }
+                    for owned in squad.players
+                ],
+                "missing_roles": squad.missing_roles(),
+            }
+            logger.info(
+                "Coach {} ha vinto {} per {} crediti",
+                self.buyer_id,
+                result.player.name,
+                result.price,
+            )
+        else:
+            content = {"outcome": "lost"}
+            logger.info(
+                "Coach {} non ha vinto {}",
+                self.buyer_id,
+                result.player.name,
+            )
+        self.tracer.event(result.player.id, "auction_result", content=content)
 
     def bid(self, player: Player, squad: Squad) -> int:
         context = self._context(player, squad)
