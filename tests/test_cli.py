@@ -656,7 +656,7 @@ class FakeLlmClient:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5},
         }
 
-    def search_news(self, query, count):
+    def search_info(self, query, count):
         return "search non disponibile"
 
 
@@ -746,7 +746,7 @@ def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
             "'buyers[0].llm.max_tool_iterations' must be an int >= 1",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["search_news"]}}],
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["search_info"]}}],
             "must contain 'submit_bid'",
         ),
         (

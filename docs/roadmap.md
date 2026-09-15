@@ -39,7 +39,7 @@ domain.
 
 - LLM-driven bidders (`AgentManager`) implementing the `Bidder` protocol via
   an OpenAI-compatible function-calling loop over the fixed tool set
-  `{search_news, submit_bid}`;
+  `{search_info, submit_bid}`;
 - one shared thread-safe `LlmClient` (httpx) per run;
 - per-agent JSONL trace logs under `logs/traces/<run_dir>/<buyer_id>.jsonl`;
 - parallel bid collection was considered and removed; bids are collected

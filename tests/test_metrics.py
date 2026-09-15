@@ -39,7 +39,7 @@ TRACE_EVENTS = [
     {"phase": "context"},
     {"phase": "llm_call"},
     {"phase": "usage", "content": {"prompt_tokens": 100, "completion_tokens": 50}},
-    {"phase": "tool_call", "content": {"name": "search_news", "args": {}}},
+    {"phase": "tool_call", "content": {"name": "search_info", "args": {}}},
     {"phase": "bid", "content": {"amount": 10}},
     {"phase": "context"},
     {"phase": "no_bid"},
@@ -63,7 +63,7 @@ def test_agent_metrics_computed_from_report_and_trace():
     assert metrics["targets_acquired"] == 1  # case-insensitive match
     assert metrics["duration_seconds"] == 12.5
     assert metrics["llm_calls"] == 1
-    assert metrics["tools_used"] == {"search_news": 1, "submit_bid": 0}
+    assert metrics["tools_used"] == {"search_info": 1, "submit_bid": 0}
     assert metrics["model"] == "gpt-4o-mini"
 
 
@@ -104,8 +104,8 @@ def test_compute_run_metrics_reads_trace_files(tmp_path):
 
 
 def test_aggregate_metrics_computes_mean_and_std():
-    run_1 = {"b1": {"parse_rate": 0.5, "roster_complete": False, "cost_eur": 0.1, "spending_share_by_role": {"P": 0.5, "D": 0.5, "C": 0.0, "A": 0.0}, "tools_used": {"search_news": 1, "submit_bid": 2}}}
-    run_2 = {"b1": {"parse_rate": 0.7, "roster_complete": True, "cost_eur": 0.3, "spending_share_by_role": {"P": 0.3, "D": 0.3, "C": 0.2, "A": 0.2}, "tools_used": {"search_news": 0, "submit_bid": 1}}}
+    run_1 = {"b1": {"parse_rate": 0.5, "roster_complete": False, "cost_eur": 0.1, "spending_share_by_role": {"P": 0.5, "D": 0.5, "C": 0.0, "A": 0.0}, "tools_used": {"search_info": 1, "submit_bid": 2}}}
+    run_2 = {"b1": {"parse_rate": 0.7, "roster_complete": True, "cost_eur": 0.3, "spending_share_by_role": {"P": 0.3, "D": 0.3, "C": 0.2, "A": 0.2}, "tools_used": {"search_info": 0, "submit_bid": 1}}}
 
     aggregates = aggregate_metrics([run_1, run_2])
 
@@ -113,7 +113,7 @@ def test_aggregate_metrics_computes_mean_and_std():
     assert aggregates["b1"]["roster_complete"] == {"mean": 0.5, "std": 0.5}
     assert aggregates["b1"]["cost_eur"] == {"mean": 0.2, "std": 0.1}
     assert aggregates["b1"]["spending_share_P"]["mean"] == 0.4
-    assert aggregates["b1"]["tools_search_news"]["mean"] == 0.5
+    assert aggregates["b1"]["tools_search_info"]["mean"] == 0.5
 
 
 def test_aggregate_metrics_skips_null_costs():
@@ -138,7 +138,7 @@ def test_csv_rows_and_writer(tmp_path):
     assert rows[0]["buyer_id"] == "buyer_1"
     assert rows[0]["run"] == "run_001"
     assert rows[0]["missing_roles"] == '{"P": 2, "D": 8, "C": 8, "A": 5}'
-    assert rows[0]["tools_search_news"] == 1
+    assert rows[0]["tools_search_info"] == 1
 
     path = tmp_path / "metrics.csv"
     write_metrics_csv(path, rows)

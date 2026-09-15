@@ -14,7 +14,7 @@
 #                         e target_players (vedi esempio commentato qui sotto)
 #   temperature           creativita' (0.0 - 2.0), override del globale
 #   max_tool_iterations   cap del loop function-calling (default 3)
-#   tools                 sottoinsieme di {search_news, submit_bid}; deve
+#   tools                 sottoinsieme di {search_info, submit_bid}; deve
 #                         contenere submit_bid (default: entrambi)
 #   spending_profile      distribuzione di spesa ideale per ruolo
 #                         (chiavi P/D/C/A, somma 1)
@@ -60,7 +60,7 @@ buyers:
       personality: "prudente"
       temperature: 0.7
       max_tool_iterations: 3
-      tools: [search_news, submit_bid]
+      tools: [search_info, submit_bid]
       spending_profile:
         P: 0.08
         D: 0.20
@@ -85,7 +85,7 @@ buyers:
       personality: "aggressiva"
       temperature: 0.9
       max_tool_iterations: 3
-      tools: [search_news, submit_bid]
+      tools: [search_info, submit_bid]
       spending_profile:
         P: 0.05
         D: 0.15
@@ -104,7 +104,7 @@ buyers:
       personality: "equilibrata"
       temperature: 0.3
       max_tool_iterations: 3
-      tools: [search_news, submit_bid]
+      tools: [search_info, submit_bid]
       spending_profile:
         P: 0.06
         D: 0.24
@@ -123,7 +123,7 @@ buyers:
       personality: "opportunista"
       temperature: 1.0
       max_tool_iterations: 3
-      tools: [search_news, submit_bid]
+      tools: [search_info, submit_bid]
       spending_profile:
         P: 0.07
         D: 0.18

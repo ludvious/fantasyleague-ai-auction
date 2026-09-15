@@ -16,11 +16,11 @@ MOCK_BRAVE_KEY = "INSERISCI_LA_TUA_BRAVE_API_KEY"
 USER_AGENT = "fantasyleague-auction/0.1"
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
-    "search_news": {
+    "search_info": {
         "type": "function",
         "function": {
-            "name": "search_news",
-            "description": "Cerca notizie recenti su un giocatore (infortuni, forma, titolarità, mercato, fantacalcio).",
+            "name": "search_info",
+            "description": "Cerca info recenti su un giocatore (infortuni, forma, titolarità, ruolo, competenze, mercato, fantacalcio).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -52,9 +52,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 SEARCH_PROMPT = (
-    "Cerca notizie recenti su: {query}. Riassumi brevemente in italiano le "
+    "Cerca info recenti su: {query}. Riassumi brevemente in italiano le "
     "informazioni utili per un'asta di fantacalcio (infortuni, forma, "
-    "titolarità, mercato)."
+    "titolarità, ruolo, competenze, mercato)."
 )
 
 
@@ -152,7 +152,7 @@ class LlmClient:
             },
         }
 
-    def search_news(self, query: str, count: int) -> str:
+    def search_info(self, query: str, count: int) -> str:
         """Best-effort web search; returns an Italian tool message."""
         search = self._search
         if (
@@ -291,7 +291,7 @@ class AgentManager:
     Stateless per bid: messages are rebuilt from scratch for every player.
     """
 
-    DEFAULT_TOOLS: tuple[str, ...] = ("search_news", "submit_bid")
+    DEFAULT_TOOLS: tuple[str, ...] = ("search_info", "submit_bid")
 
     def __init__(
         self,
@@ -345,7 +345,7 @@ class AgentManager:
             )
         lines.append(
             "Usa gli strumenti a disposizione: puoi cercare ulteriori info, notizie sul giocatore "
-            "con search_news e inviare la tua offerta con submit_bid (0 = passo)."
+            "con search_info e inviare la tua offerta con submit_bid (0 = passo)."
         )
         return "\n".join(lines)
 
@@ -463,8 +463,8 @@ class AgentManager:
                         )
                         return amount
                     result = f"amount non valido, max è {squad.max_bid_allowed}"
-                elif name == "search_news" and name in self.tools:
-                    result = self.client.search_news(
+                elif name == "search_info" and name in self.tools:
+                    result = self.client.search_info(
                         str(args.get("query", "")), self._search_count(args)
                     )
                 else:

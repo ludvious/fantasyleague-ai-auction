@@ -148,12 +148,12 @@ buyers:
 
 Each `strategy: "llm"` buyer is an `AgentManager` that loops over
 OpenAI-compatible `chat` calls with the fixed tool set
-`{search_news, submit_bid}` until it returns a valid bid. The API key is read
+`{search_info, submit_bid}` until it returns a valid bid. The API key is read
 from the environment variable named by `llm.api_key_env` (`OPENCODE_API_KEY` in
 the example); only the variable name may appear in configuration files and
 sidecars. A missing variable is a pre-auction error.
 
-`search_news` is configured through the optional `llm.search` block, which
+`search_info` is configured through the optional `llm.search` block, which
 supports the `responses`, `anthropic`, and `brave` providers. The native
 providers (`responses`, `anthropic`) return a summary of the news with cited
 sources (`Fonti:`); `brave` keeps the classic `titolo — url` listing and

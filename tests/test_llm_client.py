@@ -89,20 +89,20 @@ def test_chat_raises_on_malformed_tool_arguments():
         make_client(handler).chat([], [], "gpt-4o-mini", 0.7)
 
 
-def test_search_news_returns_unavailable_message_for_mock_key():
+def test_search_info_returns_unavailable_message_for_mock_key():
     client = make_client(
         lambda request: httpx.Response(200, json={}),
         search=brave_search(api_key=MOCK_BRAVE_KEY),
     )
-    assert client.search_news("Lautaro infortunio", 3) == "search non disponibile"
+    assert client.search_info("Lautaro infortunio", 3) == "search non disponibile"
 
 
-def test_search_news_returns_unavailable_message_without_search_config():
+def test_search_info_returns_unavailable_message_without_search_config():
     client = make_client(lambda request: httpx.Response(200, json={}))
-    assert client.search_news("Lautaro infortunio", 3) == "search non disponibile"
+    assert client.search_info("Lautaro infortunio", 3) == "search non disponibile"
 
 
-def test_search_news_formats_top_results():
+def test_search_info_formats_top_results():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "brave.test"
         assert request.headers["X-Subscription-Token"] == "brave-key"
@@ -117,7 +117,7 @@ def test_search_news_formats_top_results():
     client = make_client(
         handler, search=brave_search(headers={"x-custom": "custom-value"})
     )
-    result = client.search_news("Lautaro infortunio", 2)
+    result = client.search_info("Lautaro infortunio", 2)
 
     assert "Notizia 1" in result
     assert "https://example.com/1" in result
@@ -130,12 +130,12 @@ def test_format_search_result_without_summary_has_no_leading_blank_line():
     assert "Fonti:" in result
 
 
-def test_search_news_returns_unavailable_message_on_http_error():
+def test_search_info_returns_unavailable_message_on_http_error():
     def handler(request):
         return httpx.Response(503, json={})
 
     client = make_client(handler, search=brave_search())
-    assert client.search_news("Lautaro", 2) == "search non disponibile"
+    assert client.search_info("Lautaro", 2) == "search non disponibile"
 
 
 def responses_payload():
@@ -189,7 +189,7 @@ def responses_search(**overrides):
     return config
 
 
-def test_search_news_responses_posts_web_search_tool_and_formats():
+def test_search_info_responses_posts_web_search_tool_and_formats():
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert request.url.host == "search.test"
@@ -202,7 +202,7 @@ def test_search_news_responses_posts_web_search_tool_and_formats():
         return httpx.Response(200, json=responses_payload())
 
     client = make_client(handler, search=responses_search())
-    result = client.search_news("Lautaro infortunio", 5)
+    result = client.search_info("Lautaro infortunio", 5)
 
     assert result.startswith("Lautaro è in forma e titolare.")
     assert "Fonti:" in result
@@ -211,33 +211,33 @@ def test_search_news_responses_posts_web_search_tool_and_formats():
     assert "dup" not in result
 
 
-def test_search_news_responses_slices_sources_to_count():
+def test_search_info_responses_slices_sources_to_count():
     def handler(request):
         return httpx.Response(200, json=responses_payload())
 
     client = make_client(handler, search=responses_search())
-    result = client.search_news("Lautaro", 1)
+    result = client.search_info("Lautaro", 1)
 
     assert "1. Inter Match Center — https://www.inter.it/it/match" in result
     assert "fantacalcio.it" not in result
 
 
-def test_search_news_responses_without_message_returns_no_results():
+def test_search_info_responses_without_message_returns_no_results():
     def handler(request):
         payload = responses_payload()
         payload["output"] = [payload["output"][0]]
         return httpx.Response(200, json=payload)
 
     client = make_client(handler, search=responses_search())
-    assert client.search_news("Lautaro", 5) == "nessun risultato"
+    assert client.search_info("Lautaro", 5) == "nessun risultato"
 
 
-def test_search_news_responses_on_http_error_returns_unavailable():
+def test_search_info_responses_on_http_error_returns_unavailable():
     def handler(request):
         return httpx.Response(500, json={"error": "boom"})
 
     client = make_client(handler, search=responses_search())
-    assert client.search_news("Lautaro", 5) == "search non disponibile"
+    assert client.search_info("Lautaro", 5) == "search non disponibile"
 
 
 def anthropic_payload():
@@ -284,7 +284,7 @@ def anthropic_search(**overrides):
     return config
 
 
-def test_search_news_anthropic_posts_server_tool_and_formats():
+def test_search_info_anthropic_posts_server_tool_and_formats():
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         assert request.url.host == "anthropic.test"
@@ -300,7 +300,7 @@ def test_search_news_anthropic_posts_server_tool_and_formats():
         return httpx.Response(200, json=anthropic_payload())
 
     client = make_client(handler, search=anthropic_search())
-    result = client.search_news("Lautaro infortunio", 5)
+    result = client.search_info("Lautaro infortunio", 5)
 
     assert result.startswith("Lautaro è in forma e titolare.")
     assert "Fonti:" in result
@@ -308,12 +308,12 @@ def test_search_news_anthropic_posts_server_tool_and_formats():
     assert "2. Fantacalcio.it — https://www.fantacalcio.it/news" in result
 
 
-def test_search_news_anthropic_on_http_error_returns_unavailable():
+def test_search_info_anthropic_on_http_error_returns_unavailable():
     def handler(request):
         return httpx.Response(401, json={"error": "no key"})
 
     client = make_client(handler, search=anthropic_search())
-    assert client.search_news("Lautaro", 5) == "search non disponibile"
+    assert client.search_info("Lautaro", 5) == "search non disponibile"
 
 
 def test_client_sends_user_agent_and_extra_headers_by_default():

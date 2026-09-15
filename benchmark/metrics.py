@@ -39,7 +39,7 @@ CSV_FIELDS = [
     "budget_spent", "budget_remaining", "spending_distance",
     "spending_share_P", "spending_share_D", "spending_share_C",
     "spending_share_A", "targets_acquired", "duration_seconds",
-    "llm_calls", "tools_search_news", "tools_submit_bid",
+    "llm_calls", "tools_search_info", "tools_submit_bid",
 ]
 
 
@@ -118,7 +118,7 @@ def agent_metrics(
     tool_calls = [e["content"] for e in trace if e["phase"] == "tool_call"]
     tools_used = {
         name: sum(1 for call in tool_calls if call.get("name") == name)
-        for name in ("search_news", "submit_bid")
+        for name in ("search_info", "submit_bid")
     }
     return {
         "model": model,
@@ -178,7 +178,7 @@ def aggregate_metrics(run_metrics: list[dict[str, dict]]) -> dict:
                 for run in run_metrics
             ]
             aggregates[buyer_id][f"spending_share_{role}"] = _mean_std(values)
-        for tool in ("search_news", "submit_bid"):
+        for tool in ("search_info", "submit_bid"):
             values = [
                 run[buyer_id].get("tools_used", {}).get(tool, 0)
                 for run in run_metrics
@@ -213,7 +213,7 @@ def csv_rows(run_records: list[dict]) -> list[dict]:
                     "targets_acquired": metrics["targets_acquired"],
                     "duration_seconds": metrics["duration_seconds"],
                     "llm_calls": metrics["llm_calls"],
-                    "tools_search_news": metrics["tools_used"]["search_news"],
+                    "tools_search_info": metrics["tools_used"]["search_info"],
                     "tools_submit_bid": metrics["tools_used"]["submit_bid"],
                 }
             )

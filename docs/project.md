@@ -118,7 +118,7 @@ reads these fields:
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
 | `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
 | `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `3` |
-| `buyers[].llm` | `tools` | no | non-empty subset of `{search_news, submit_bid}` containing `submit_bid`; default: both |
+| `buyers[].llm` | `tools` | no | non-empty subset of `{search_info, submit_bid}` containing `submit_bid`; default: both |
 | `buyers[].llm` | `spending_profile` | no | mapping role → share in `[0, 1]`, keys ⊆ `{P, D, C, A}`, shares sum to 1 (± 0.01); used only by metrics (absent → uniform target) |
 | `buyers[].llm` | `target_players` | no | list of non-empty strings |
 | `logging` | `level` | no | default `INFO` |
@@ -126,7 +126,7 @@ reads these fields:
 
 *Required only when at least one buyer has `strategy: "llm"`. Live search is
 optional: a missing or placeholder search key disables live search (the
-`search_news` tool returns `search non disponibile`).
+`search_info` tool returns `search non disponibile`).
 
 Unknown sections and fields are ignored. Precedence:
 

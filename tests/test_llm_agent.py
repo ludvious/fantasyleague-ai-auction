@@ -18,7 +18,7 @@ class FakeClient:
         self.messages_seen.append(list(messages))
         return self.responses.pop(0)
 
-    def search_news(self, query, count):
+    def search_info(self, query, count):
         return "1. Notizia di prova — https://example.com"
 
 
@@ -62,7 +62,7 @@ def phases(trace_path):
 
 def test_search_then_submit_returns_bid(tmp_path):
     client = FakeClient([
-        chat_response(tool_call("search_news", {"query": "Lautaro infortunio"})),
+        chat_response(tool_call("search_info", {"query": "Lautaro infortunio"})),
         chat_response(tool_call("submit_bid", {"amount": 12})),
     ])
     manager, trace_path = make_manager(tmp_path, client)
@@ -73,7 +73,7 @@ def test_search_then_submit_returns_bid(tmp_path):
     assert tool_messages[0]["content"].startswith("1. Notizia")
     assistant = client.messages_seen[1][-2]
     assert assistant["role"] == "assistant"
-    assert assistant["tool_calls"][0]["function"]["name"] == "search_news"
+    assert assistant["tool_calls"][0]["function"]["name"] == "search_info"
     assert phases(trace_path) == [
         "context", "llm_call", "usage", "tool_call", "tool_result",
         "llm_call", "usage", "tool_call", "bid",
@@ -108,8 +108,8 @@ def test_stop_without_submit_bid_returns_zero(tmp_path):
 
 def test_iteration_cap_returns_zero(tmp_path):
     client = FakeClient([
-        chat_response(tool_call("search_news", {"query": "x"})),
-        chat_response(tool_call("search_news", {"query": "x"})),
+        chat_response(tool_call("search_info", {"query": "x"})),
+        chat_response(tool_call("search_info", {"query": "x"})),
     ])
     manager, trace_path = make_manager(tmp_path, client, max_tool_iterations=2)
 
@@ -138,7 +138,7 @@ def test_chat_exception_is_traced_and_propagates(tmp_path):
 
 def test_disabled_search_tool_is_rejected(tmp_path):
     client = FakeClient([
-        chat_response(tool_call("search_news", {"query": "x"})),
+        chat_response(tool_call("search_info", {"query": "x"})),
         chat_response(tool_call("submit_bid", {"amount": 3})),
     ])
     manager, trace_path = make_manager(tmp_path, client, tools=("submit_bid",))
