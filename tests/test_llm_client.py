@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from agents.llm_agent import LlmClient, MOCK_BRAVE_KEY
+from agents.llm_agent import LlmClient, MOCK_BRAVE_KEY, _format_search_result
 
 
 def make_client(handler, search=None):
@@ -106,6 +106,7 @@ def test_search_news_formats_top_results():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "brave.test"
         assert request.headers["X-Subscription-Token"] == "brave-key"
+        assert request.headers["x-custom"] == "custom-value"
         return httpx.Response(200, json={
             "web": {"results": [
                 {"title": "Notizia 1", "url": "https://example.com/1"},
@@ -113,11 +114,20 @@ def test_search_news_formats_top_results():
             ]}
         })
 
-    client = make_client(handler, search=brave_search())
+    client = make_client(
+        handler, search=brave_search(headers={"x-custom": "custom-value"})
+    )
     result = client.search_news("Lautaro infortunio", 2)
 
     assert "Notizia 1" in result
     assert "https://example.com/1" in result
+
+
+def test_format_search_result_without_summary_has_no_leading_blank_line():
+    result = _format_search_result("", [("Titolo", "https://u")], 5)
+
+    assert not result.startswith("\n")
+    assert "Fonti:" in result
 
 
 def test_search_news_returns_unavailable_message_on_http_error():

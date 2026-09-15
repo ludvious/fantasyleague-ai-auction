@@ -69,7 +69,8 @@ def _format_search_result(
     if summary:
         lines.append(summary)
     if unique:
-        lines.append("")
+        if lines:
+            lines.append("")
         lines.append("Fonti:")
         lines.extend(
             f"{index}. {title} — {url}"
@@ -174,7 +175,10 @@ class LlmClient:
         response = self._http.get(
             self._search["base_url"],
             params={"q": query, "count": count},
-            headers={"X-Subscription-Token": self._search["api_key"]},
+            headers={
+                **(self._search.get("headers") or {}),
+                "X-Subscription-Token": self._search["api_key"],
+            },
         )
         response.raise_for_status()
         payload = response.json()

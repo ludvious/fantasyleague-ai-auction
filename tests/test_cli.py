@@ -924,6 +924,76 @@ def test_cli_resolves_search_config_with_defaults(monkeypatch):
     assert client.extra_headers["x-opencode-session"].startswith("fantasyleague-")
 
 
+def test_cli_resolves_legacy_brave_block(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setenv("TEST_BRAVE_API_KEY", "brave-dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "brave": {
+            "base_url": "https://api.search.brave.com/res/v1/web/search",
+            "api_key_env": "TEST_BRAVE_API_KEY",
+        },
+    }
+
+    client = cli_module._make_llm_client(llm_config)
+
+    assert client.search == {
+        "provider": "brave",
+        "base_url": "https://api.search.brave.com/res/v1/web/search",
+        "api_key": "brave-dummy",
+    }
+
+
+def test_cli_search_inherits_api_key_env_from_llm(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "search": {"provider": "anthropic", "model": "claude-opus-4-8"},
+    }
+
+    client = cli_module._make_llm_client(llm_config)
+
+    assert client.api_key == "dummy"
+
+
+def test_cli_search_uses_provider_default_base_url(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "search": {"provider": "anthropic", "model": "claude-opus-4-8"},
+    }
+
+    client = cli_module._make_llm_client(llm_config)
+
+    assert client.base_url == "https://api.anthropic.com"
+
+
+def test_cli_search_passes_through_max_tokens_and_headers(monkeypatch):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "search": {
+            "provider": "responses",
+            "model": "gpt-5.6-luna",
+            "max_output_tokens": 123,
+            "headers": {"x-custom": "custom-value"},
+        },
+    }
+
+    client = cli_module._make_llm_client(llm_config)
+
+    assert client.search["max_output_tokens"] == 123
+    assert client.search["headers"] == {"x-custom": "custom-value"}
+
+
 def test_cli_rejects_brave_api_key_field(monkeypatch, tmp_path):
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
