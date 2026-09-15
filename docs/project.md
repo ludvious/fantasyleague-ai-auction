@@ -17,13 +17,20 @@ The deterministic auction MVP is implemented and P1, P2, and P3 are complete:
   auction state;
 - reports and checkpoints use version-1 typed JSON contracts;
 - pool-exhaustion checkpoints are autonomous and resume with `--resume`;
-- LLM-driven bidders (`AgentManager`) loop over OpenAI-compatible
-  function-calling until a valid `submit_bid` arrives, with per-agent JSONL
-  traces under `logs/traces/`;
+- LLM-driven bidders (`CoachAgent`) loop over OpenAI-compatible
+  function-calling until a domain-valid `submit_bid` arrives, with per-agent
+  JSONL traces under `logs/traces/`;
+- CoachAgent profiles are auto-discovered from `coachAgent_*.md` files in
+  `paths.coaches` (front-matter for technical fields, markdown body for the
+  strategy); the shared prompt lives in `agents/prompts/common.md` with
+  placeholders filled from the domain;
+- after every resolved lot the engine notifies the polled bidders through
+  `observe(result, squad)`: `CoachAgent` traces `auction_result` (won/lost) and
+  logs it; deterministic/random bidders are no-ops;
 - bids are collected sequentially in bidder order, with validation and issue
   recording inline;
 - checkpoints containing `llm` buyers save a `checkpoint.llm.yaml` sidecar and
-  resume from it;
+  resume from it (the resolved `system_prompt` is stored per buyer);
 - the `benchmark` subcommand runs multiple auctions and aggregates pure
   per-agent metrics into `metrics.json`, `metrics.csv`, and a console table.
 
@@ -91,8 +98,8 @@ buyers:
 `DeterministicBidder` produces a stable priority-based bid. `RandomBidder`
 uses an injected seeded random generator and can return zero. Neither bidder
 mutates the squad or player; the domain validates and applies purchases.
-`configs/llm.yaml` is the example configuration for LLM-driven bidders; see
-the contract table below.
+`configs/llm.yaml` is the example configuration for CoachAgent-driven auctions
+(discovering `agents/coachAgent_*.md`); see the contract table below.
 
 ### Configuration contract
 
@@ -104,6 +111,7 @@ reads these fields:
 | `simulation` | `budget` | no | int, default `500`, minimum 25 |
 | `simulation` | `seed` | yes | int, seeds `random.Random` |
 | `paths` | `players` | yes | Excel workbook path |
+| `paths` | `coaches` | no | directory scanned for `coachAgent_*.md` coaches; only scanned when set |
 | `paths` | `output` | no | report path or directory |
 | `paths` | `checkpoint` | no | checkpoint path or directory |
 | `paths` | `logs` | no | log directory, default `logs` |
@@ -189,18 +197,21 @@ without writing one.
 ### Traces and the LLM sidecar
 
 Every `llm` buyer writes one JSON object per event (context, llm_call, usage,
-tool_call, tool_result, bid, no_bid, error, ...) to
+thinking, tool_call, tool_result, bid, no_bid, error, auction_result, ...) to
 `logs/traces/<run_dir>/<buyer_id>.jsonl`, flushed immediately. The `<run_dir>`
 is chosen by the caller (`main.py` or `benchmark`), never by the engine; each
-invocation uses a fresh timestamped directory.
+invocation uses a fresh timestamped directory. Reasoning (`thinking`) is also
+logged to the application console at INFO.
 
 On pool exhaustion with at least one `llm` buyer, the CLI writes
 `<checkpoint>.llm.yaml` next to the checkpoint (`schema_version: 1`) with the
-global `llm` block and per-buyer `llm` blocks (only where configured; the
-`api_key_env` variable name, never the key itself). Resuming a checkpoint with
-`llm` buyers requires a valid sidecar: missing or malformed sidecars exit `1`
-before the auction. A second exhaustion propagates the sidecar next to the new
-checkpoint. Checkpoints without `llm` buyers never write one.
+global `llm` block and one per-buyer `llm` block containing the fully resolved
+`system_prompt` (the `api_key_env` variable name, never the key itself).
+Resuming a checkpoint with `llm` buyers requires a valid sidecar: missing or
+malformed sidecars exit `1` before the auction, and the stored prompt is used
+as-is, so the original config and `coachAgent_*.md` files are not needed. A
+second exhaustion propagates the sidecar next to the new checkpoint.
+Checkpoints without `llm` buyers never write one.
 
 ### Benchmark output
 
@@ -215,10 +226,16 @@ report with `completed: false` and the benchmark continues.
 
 ```text
 agents/
-  base_agent.py       Bidder protocol
+  base_agent.py       Bidder protocol (bid + observe)
   buyer_agent.py      DeterministicBidder and RandomBidder
   trace.py            TraceLogger: per-agent JSONL events
-  llm_agent.py        LlmClient (shared httpx) and AgentManager (Bidder)
+  llm_client.py       LlmClient (shared httpx) and tool/search schemas
+  coach_agent.py      CoachAgent (LLM bidder)
+  coach_loader.py     Discovery and validation of coachAgent_*.md profiles
+  coach_prompt.py     Common-prompt rendering and placeholder substitution
+  prompts/
+    common.md         Shared system prompt with domain placeholders
+  coachAgent_*.md     Example CoachAgent profiles (auto-discovered)
 
 benchmark/
   metrics.py          Pure metric functions over report JSON and trace JSONL
@@ -258,5 +275,7 @@ The test suite covers roster invariants, strict bid validation, invalid and
 raising bidders, tie and no-bid outcomes, deterministic and random bidder
 behavior, canonical players, Excel schema handling, JSON persistence, pool
 exhaustion, configuration contract validation, LLM configuration validation,
-sidecar save/resume flows, trace logging, the LLM function-calling loop,
-bid extraction ordering, benchmark metrics, and CLI success/failure paths.
+coach profile discovery and front-matter parsing, common-prompt rendering,
+domain-validated bid retries, outcome notifications, sidecar save/resume
+flows, trace logging, the LLM function-calling loop, bid extraction ordering,
+benchmark metrics, and CLI success/failure paths.

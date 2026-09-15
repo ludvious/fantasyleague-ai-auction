@@ -37,7 +37,8 @@ domain.
 
 ### P3 — LLM agent integration (complete)
 
-- LLM-driven bidders (`AgentManager`) implementing the `Bidder` protocol via
+- LLM-driven bidders (`AgentManager`, renamed to `CoachAgent` in P4)
+  implementing the `Bidder` protocol via
   an OpenAI-compatible function-calling loop over the fixed tool set
   `{search_info, submit_bid}`;
 - one shared thread-safe `LlmClient` (httpx) per run;
@@ -64,6 +65,33 @@ Explicitly deferred:
 - multi-config comparison in one benchmark command;
 - readable transcript generator from the JSONL traces.
 
+### P4 — CoachAgent: discovery, prompt architecture, outcome events (complete)
+
+- `AgentManager` renamed to `CoachAgent`; the client/search code split into
+  `agents/llm_client.py`;
+- coach profiles auto-discovered from `coachAgent_*.md` files in
+  `paths.coaches` (optional YAML front-matter for technical fields plus a
+  markdown strategy body), validated through the existing LLM contract, with
+  id/name derived from the filename;
+- shared `agents/prompts/common.md` rendered with domain placeholders
+  (roster requirements, budget, max-bid rule) so the regulation can never
+  drift from `core/models.py`; structured fields and the profile body are
+  appended, and an explicit `system_prompt` still overrides everything;
+- bids are validated inside the coach loop via `Squad.validate_bid`, with the
+  domain error returned to the model as a tool result; the engine keeps its
+  post-hoc validation and `BidIssue` safety net;
+- reasoning (`thinking`) is traced and mirrored to the application log at INFO;
+- after each lot the engine calls `observe(result, squad)` on the polled
+  bidders; `CoachAgent` traces `auction_result` (won: player, price, updated
+  roster, budget; lost: minimal) and logs it;
+- the `checkpoint.llm.yaml` sidecar (schema unchanged) stores the resolved
+  `system_prompt` per buyer, so `--resume` needs neither the YAML nor the
+  `.md` files.
+
+Still deferred: per-agent session memory with LLM reaction messages to
+outcome notifications (the `observe` hook is the seam), opponent state and
+observed prices in the dynamic context.
+
 ## Explicitly out of scope for now
 
 The following must not be introduced without an explicit architectural
@@ -79,5 +107,4 @@ decision:
 
 ## Backlog (candidates, not yet designed)
 
-- interactive `--step` mode with save-and-quit (issue #9);
-- configurable prompt architecture for LLM buyers (`agents/prompt.md`).
+- interactive `--step` mode with save-and-quit (issue #9).
