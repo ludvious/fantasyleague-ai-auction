@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from loguru import logger
 
 from agents.coach_agent import CoachAgent
 from agents.trace import TraceLogger
@@ -91,7 +92,59 @@ def test_submit_bid_out_of_range_self_corrects(tmp_path):
     assert manager.bid(make_player(), make_squad()) == 10
 
     tool_messages = [m for m in client.messages_seen[1] if m["role"] == "tool"]
-    assert "amount non valido" in tool_messages[0]["content"]
+    assert "offerta rifiutata" in tool_messages[0]["content"]
+    assert "legal maximum" in tool_messages[0]["content"]
+
+
+def test_wrong_type_bid_self_corrects(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("submit_bid", {"amount": "10"})),
+        chat_response(tool_call("submit_bid", {"amount": 10})),
+    ])
+    manager, trace_path = make_manager(tmp_path, client)
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    tool_messages = [m for m in client.messages_seen[1] if m["role"] == "tool"]
+    assert "Python int" in tool_messages[0]["content"]
+
+
+def test_unfixable_role_bid_exhausts_iterations(tmp_path):
+    squad = make_squad()
+    for index in range(6):
+        player = Player(
+            id=f"a{index}", name=f"Attaccante {index}",
+            position=Position.A, team="Inter", list_price=1,
+        )
+        squad.add_player(player, 1)
+    client = FakeClient([
+        chat_response(tool_call("submit_bid", {"amount": 1})),
+        chat_response(tool_call("submit_bid", {"amount": 0})),
+    ])
+    manager, trace_path = make_manager(tmp_path, client, max_tool_iterations=2)
+
+    assert manager.bid(make_player(), squad) == 0
+
+    last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last["content"] == {"reason": "iteration_cap"}
+
+
+def test_reasoning_is_logged(tmp_path):
+    client = FakeClient([
+        chat_response(
+            tool_call("submit_bid", {"amount": 5}),
+            content="Stimo 5 crediti.",
+        )
+    ])
+    manager, _ = make_manager(tmp_path, client)
+    messages: list[str] = []
+    sink_id = logger.add(messages.append, level="INFO", format="{message}")
+    try:
+        manager.bid(make_player(), make_squad())
+    finally:
+        logger.remove(sink_id)
+
+    assert any("Stimo 5 crediti." in str(message) for message in messages)
 
 
 def test_stop_without_submit_bid_returns_zero(tmp_path):

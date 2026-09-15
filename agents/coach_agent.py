@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+from loguru import logger
+
 from agents.llm_client import LlmClient, TOOL_SCHEMAS
 from agents.trace import TraceLogger
-from core.models import Player, Squad
+from core.models import BidValidationError, Player, Squad
 
 
 class CoachAgent:
@@ -132,6 +134,12 @@ class CoachAgent:
                 self.tracer.event(
                     player.id, "thinking", iteration, {"text": response["content"]}
                 )
+                logger.info(
+                    "Coach {} su {}: {}",
+                    self.buyer_id,
+                    player.name,
+                    response["content"].strip(),
+                )
             if not response["tool_calls"]:
                 self.tracer.event(
                     player.id,
@@ -149,15 +157,15 @@ class CoachAgent:
                 )
                 if name == "submit_bid":
                     amount = args.get("amount")
-                    if (
-                        type(amount) is int
-                        and 0 <= amount <= squad.max_bid_allowed
-                    ):
+                    try:
+                        squad.validate_bid(player, amount)
+                    except BidValidationError as exc:
+                        result = f"offerta rifiutata: {exc}"
+                    else:
                         self.tracer.event(
                             player.id, "bid", iteration, {"amount": amount}
                         )
                         return amount
-                    result = f"amount non valido, max è {squad.max_bid_allowed}"
                 elif name == "search_info" and name in self.tools:
                     result = self.client.search_info(
                         str(args.get("query", "")), self._search_count(args)
