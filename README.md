@@ -116,11 +116,11 @@ failures do not write one.
 
 `configs/llm.yaml` is the example configuration for CoachAgent-driven
 auctions. Coaches are auto-discovered as `coachAgent_*.md` files in the
-directory named by `paths.coaches` (the example points at `agents/`):
+directory named by `paths.coaches` (the example points at `agents/coach/`):
 
 ```yaml
 paths:
-  coaches: "agents"
+  coaches: "agents/coach"
 
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
@@ -158,7 +158,7 @@ The filename derives the coach id (`coachAgent_Alfa.md` → `alfa`); the optiona
 front-matter carries technical fields (`model`, `temperature`,
 `max_tool_iterations`, `tools`, `spending_profile`, `target_players`,
 `system_prompt`) validated with the LLM contract, and the markdown body is the
-agent profile. The system prompt is the shared `agents/prompts/common.md`
+agent profile. The system prompt is the shared `agents/prompts/system_prompt.md`
 (regulation rendered from the domain) plus the profile; an explicit
 `system_prompt` replaces it entirely. YAML `buyers` still work, and remain
 required for `deterministic`/`random` bidders.

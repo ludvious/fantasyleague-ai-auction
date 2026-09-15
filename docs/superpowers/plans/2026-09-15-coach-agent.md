@@ -4,7 +4,7 @@
 
 **Goal:** Turn the LLM bidder into a `CoachAgent` with auto-discovered markdown profiles, a shared common prompt fed by domain rules, domain-validated bids with in-loop retry, post-auction outcome notifications, and console-visible reasoning — without touching auction rules or versioned JSON contracts.
 
-**Architecture:** `LlmClient` (HTTP/search) is split from `CoachAgent` (decision loop). Coach profiles are `coachAgent_*.md` files discovered from `paths.coaches` (example points at the repo `agents/` root); front-matter carries technical fields, the body is the agent profile. A shared `agents/prompts/common.md` is rendered with placeholders from `core/models.py` and `simulation.budget`, then combined with the profile and structured fields. The engine gains an `observe(result, squad)` hook after each lot; `CoachAgent` turns it into a trace event + log line (the future memory seam). The sidecar stays version 1 and stores the resolved system prompt, so resume needs neither YAML nor `.md` files.
+**Architecture:** `LlmClient` (HTTP/search) is split from `CoachAgent` (decision loop). Coach profiles are `coachAgent_*.md` files discovered from `paths.coaches` (example points at the repo `agents/` root); front-matter carries technical fields, the body is the agent profile. A shared `agents/prompts/system_prompt.md` is rendered with placeholders from `core/models.py` and `simulation.budget`, then combined with the profile and structured fields. The engine gains an `observe(result, squad)` hook after each lot; `CoachAgent` turns it into a trace event + log line (the future memory seam). The sidecar stays version 1 and stores the resolved system prompt, so resume needs neither YAML nor `.md` files.
 
 **Tech Stack:** Python 3.11 (CI pin; local venv 3.14), pydantic, httpx, loguru, PyYAML, pytest. No new dependencies.
 
@@ -135,7 +135,7 @@ git commit -m "refactor(agents): split LlmClient from CoachAgent and rename Agen
 ### Task 2: Common prompt template and renderer
 
 **Files:**
-- Create: `agents/prompts/common.md`
+- Create: `agents/prompts/system_prompt.md`
 - Create: `agents/coach_prompt.py`
 - Test: `tests/test_coach_prompt.py`
 
@@ -190,7 +190,7 @@ def test_override_wins():
 
 
 def test_missing_placeholder_fails(tmp_path, monkeypatch):
-    broken = tmp_path / "common.md"
+    broken = tmp_path / "system_prompt.md"
     broken.write_text("solo testo senza placeholder", encoding="utf-8")
     monkeypatch.setattr(coach_prompt, "COMMON_PROMPT_PATH", broken)
 
@@ -203,7 +203,7 @@ def test_missing_placeholder_fails(tmp_path, monkeypatch):
 Run: `venv/bin/pytest tests/test_coach_prompt.py -q -W error`
 Expected: FAIL with `ModuleNotFoundError: No module named 'agents.coach_prompt'`.
 
-- [ ] **Step 3: Create `agents/prompts/common.md`**
+- [ ] **Step 3: Create `agents/prompts/system_prompt.md`**
 
 ```markdown
 Sei un allenatore-manager che partecipa a un'asta di fantacalcio italiano.
@@ -271,7 +271,7 @@ from pathlib import Path
 
 from core.models import ROSTER_REQUIREMENTS
 
-COMMON_PROMPT_PATH = Path(__file__).with_name("prompts") / "common.md"
+COMMON_PROMPT_PATH = Path(__file__).with_name("prompts") / "system_prompt.md"
 
 MAX_BID_RULE = (
     "Ogni slot libero riserva 1 credito: la tua offerta massima consentita è "
@@ -343,7 +343,7 @@ Run: `venv/bin/pytest -q -W error`
 Expected: `181 passed`.
 
 ```bash
-git add agents/prompts/common.md agents/coach_prompt.py tests/test_coach_prompt.py
+git add agents/prompts/system_prompt.md agents/coach_prompt.py tests/test_coach_prompt.py
 git commit -m "feat(llm): add shared common prompt with domain-rendered rules"
 ```
 
@@ -1576,7 +1576,7 @@ git commit -m "feat(agents): notify bidders of auction outcomes via observe hook
 
 - [ ] **Step 1: Update `AGENTS.md`**
 
-- Architecture bullet: `agents/` — add `coach_loader.py`, `coach_prompt.py`, `prompts/common.md`, `coachAgent_*.md`; rename `llm_agent.py` → `coach_agent.py` + `llm_client.py`.
+- Architecture bullet: `agents/` — add `coach_loader.py`, `coach_prompt.py`, `prompts/system_prompt.md`, `coachAgent_*.md`; rename `llm_agent.py` → `coach_agent.py` + `llm_client.py`.
 - "LLM bidders" section: rename to CoachAgent; explain discovery via `paths.coaches` (example `agents/`), front-matter + profile body, common prompt, domain-validated bid retry, `auction_result` observe events, sidecar stores the resolved system prompt (schema stays 1).
 - Config table in `docs/project.md`: add `paths.coaches` (optional string; the directory is only scanned when set).
 

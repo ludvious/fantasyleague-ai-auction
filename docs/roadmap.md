@@ -73,7 +73,7 @@ Explicitly deferred:
   `paths.coaches` (optional YAML front-matter for technical fields plus a
   markdown strategy body), validated through the existing LLM contract, with
   id/name derived from the filename;
-- shared `agents/prompts/common.md` rendered with domain placeholders
+- shared `agents/prompts/system_prompt.md` rendered with domain placeholders
   (roster requirements, budget, max-bid rule) so the regulation can never
   drift from `core/models.py`; structured fields and the profile body are
   appended, and an explicit `system_prompt` still overrides everything;

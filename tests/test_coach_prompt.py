@@ -42,7 +42,7 @@ def test_override_wins():
 
 
 def test_missing_placeholder_fails(tmp_path, monkeypatch):
-    broken = tmp_path / "common.md"
+    broken = tmp_path / "system_prompt.md"
     broken.write_text("solo testo senza placeholder", encoding="utf-8")
     monkeypatch.setattr(coach_prompt, "COMMON_PROMPT_PATH", broken)
 

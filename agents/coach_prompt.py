@@ -6,7 +6,7 @@ from pathlib import Path
 
 from core.models import ROSTER_REQUIREMENTS
 
-COMMON_PROMPT_PATH = Path(__file__).with_name("prompts") / "common.md"
+COMMON_PROMPT_PATH = Path(__file__).with_name("prompts") / "system_prompt.md"
 
 MAX_BID_RULE = (
     "Ogni slot libero riserva 1 credito: la tua offerta massima consentita è "

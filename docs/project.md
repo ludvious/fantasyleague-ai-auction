@@ -22,7 +22,7 @@ The deterministic auction MVP is implemented and P1–P4 are complete:
   JSONL traces under `logs/traces/`;
 - CoachAgent profiles are auto-discovered from `coachAgent_*.md` files in
   `paths.coaches` (front-matter for technical fields, markdown body for the
-  strategy); the shared prompt lives in `agents/prompts/common.md` with
+  strategy); the shared prompt lives in `agents/prompts/system_prompt.md` with
   placeholders filled from the domain;
 - after every resolved lot the engine notifies the polled bidders through
   `observe(result, squad)`: `CoachAgent` traces `auction_result` (won/lost) and
@@ -99,7 +99,7 @@ buyers:
 uses an injected seeded random generator and can return zero. Neither bidder
 mutates the squad or player; the domain validates and applies purchases.
 `configs/llm.yaml` is the example configuration for CoachAgent-driven auctions
-(discovering `agents/coachAgent_*.md`); see the contract table below.
+(discovering `agents/coach/coachAgent_*.md`); see the contract table below.
 
 ### Configuration contract
 
@@ -245,8 +245,9 @@ agents/
   coach_loader.py     Discovery and validation of coachAgent_*.md profiles
   coach_prompt.py     Common-prompt rendering and placeholder substitution
   prompts/
-    common.md         Shared system prompt with domain placeholders
-  coachAgent_*.md     Example CoachAgent profiles (auto-discovered)
+    system_prompt.md    Shared system prompt with domain placeholders
+  coach/
+    coachAgent_*.md     Example CoachAgent profiles (auto-discovered)
 
 benchmark/
   metrics.py          Pure metric functions over report JSON and trace JSONL
@@ -265,7 +266,7 @@ utils/
 configs/
   default.yaml        Active default simulation configuration
   llm.yaml            Example CoachAgent auction configuration (discovers
-                      agents/coachAgent_*.md)
+                      agents/coach/coachAgent_*.md)
 
 data/
   *.xlsx              Player source workbook

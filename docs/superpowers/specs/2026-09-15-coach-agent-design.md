@@ -21,7 +21,7 @@ as they are.
   markdown body (the agent profile). Filename derives `id`/`name`; front-matter
   can override. Unknown front-matter fields are rejected; duplicate ids are
   rejected.
-- **Prompt**: `agents/prompts/common.md` is the shared, non-repeated prompt
+- **Prompt**: `agents/prompts/system_prompt.md` is the shared, non-repeated prompt
   (identity, goals, information priorities, decision method, uncertainty,
   tools, response format, and the league regulation). `{roster_requirements}`,
   `{budget}`, and `{max_bid_rule}` are replaced at render time from the domain,
@@ -49,7 +49,7 @@ as they are.
   buyer's existing `system_prompt` field so `--resume` needs neither the config
   nor the `.md` files. Report and checkpoint schemas are untouched.
   Deterministic/random bidders get a no-op `observe`.
-- `agents/prompt.md` is absorbed into `agents/prompts/common.md` and removed.
+- `agents/prompt.md` is absorbed into `agents/prompts/system_prompt.md` and removed.
 
 ## File structure
 
@@ -60,7 +60,7 @@ agents/
   coach_loader.py      coach discovery, front-matter parsing, load_buyer_configs
   coach_prompt.py      common-prompt rendering and placeholder substitution
   prompts/
-    common.md          shared prompt + regulation placeholders
+    system_prompt.md          shared prompt + regulation placeholders
   coachAgent_Alfa.md   example coach profiles (auto-discovered via paths.coaches)
   coachAgent_Beta.md
   coachAgent_Gamma.md
@@ -99,7 +99,7 @@ Sei il coach della Squadra Alfa. Stile prudente: ...
 spending_profile=..., target_players=..., override=...)`:
 
 1. `override` (non-blank) wins outright.
-2. `common.md` with placeholders replaced from `ROSTER_REQUIREMENTS` and the
+2. `system_prompt.md` with placeholders replaced from `ROSTER_REQUIREMENTS` and the
    configured budget.
 3. Structured field lines when present (parity with today's YAML buyers).
 4. `# Profilo dell'agente` + markdown body when present.
