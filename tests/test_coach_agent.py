@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agents.llm_agent import AgentManager
+from agents.coach_agent import CoachAgent
 from agents.trace import TraceLogger
 from core.models import Player, Position, Squad
 
@@ -37,7 +37,7 @@ def chat_response(*calls, content="", finish_reason="tool_calls"):
 
 def make_manager(tmp_path, client, **kwargs):
     tracer = TraceLogger(tmp_path / "traces", "buyer_1")
-    manager = AgentManager(
+    manager = CoachAgent(
         "buyer_1", "Alpha", client, tracer,
         model="gpt-4o-mini", temperature=0.7, **kwargs,
     )

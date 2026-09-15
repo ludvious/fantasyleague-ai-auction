@@ -7,7 +7,8 @@ import pytest
     "module_name",
     [
         "agents.trace",
-        "agents.llm_agent",
+        "agents.llm_client",
+        "agents.coach_agent",
         "benchmark.metrics",
     ],
 )

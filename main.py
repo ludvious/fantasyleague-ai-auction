@@ -13,7 +13,8 @@ import yaml
 from loguru import logger
 
 from agents.buyer_agent import DeterministicBidder, RandomBidder
-from agents.llm_agent import AgentManager, LlmClient
+from agents.coach_agent import CoachAgent
+from agents.llm_client import LlmClient
 from agents.trace import TraceLogger
 from benchmark.runner import run_benchmark
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
@@ -129,7 +130,7 @@ def _build_bidders(
                 raise ValueError("A trace run_dir is required for LLM bidders")
             merged = {**(llm_config or {}), **(config.get("llm") or {})}
             bidders.append(
-                AgentManager(
+                CoachAgent(
                     buyer_id,
                     name,
                     client=llm_client,
@@ -140,7 +141,7 @@ def _build_bidders(
                     personality=merged.get("personality"),
                     system_prompt=merged.get("system_prompt"),
                     max_tool_iterations=int(merged.get("max_tool_iterations", 3)),
-                    tools=tuple(merged.get("tools", AgentManager.DEFAULT_TOOLS)),
+                    tools=tuple(merged.get("tools", CoachAgent.DEFAULT_TOOLS)),
                     spending_profile=merged.get("spending_profile"),
                     target_players=merged.get("target_players"),
                 )

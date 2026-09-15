@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from agents.llm_agent import TOOL_SCHEMAS
+from agents.llm_client import TOOL_SCHEMAS
 from core.models import Position
 
 LLM_TOOLS = set(TOOL_SCHEMAS)

@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from agents.llm_agent import LlmClient, MOCK_BRAVE_KEY, _format_search_result
+from agents.llm_client import LlmClient, MOCK_BRAVE_KEY, _format_search_result
 
 
 def make_client(handler, search=None):
