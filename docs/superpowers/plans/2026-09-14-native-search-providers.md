@@ -1119,7 +1119,7 @@ Replace the `llm:` block (lines 33-41) with:
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "glm-5.3"
+  model: "gpt-5.6-luna"
   temperature: 0.7
   timeout_seconds: 30
   # Header applicati a tutte le richieste. x-opencode-session è richiesto
@@ -1135,7 +1135,7 @@ llm:
     #   brave     → search classica "titolo — url" (provider + api_key_env)
 ```
 
-Update every buyer's `model: "gpt-4o-mini"` to `model: "glm-5.3"` (4 occurrences) and the header comment listing buyer fields is unchanged.
+Update every buyer's `model: "gpt-4o-mini"` to `model: "gpt-5.6-luna"` (4 occurrences) and the header comment listing buyer fields is unchanged.
 
 - [ ] **Step 2: Update `docs/project.md`**
 

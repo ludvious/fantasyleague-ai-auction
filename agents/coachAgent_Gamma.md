@@ -1,6 +1,6 @@
 ---
-model: "glm-5.3"
-temperature: 0.3
+model: "gpt-5.6-luna"
+temperature: 0.5
 spending_profile:
   P: 0.06
   D: 0.24

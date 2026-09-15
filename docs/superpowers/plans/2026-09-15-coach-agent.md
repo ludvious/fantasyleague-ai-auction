@@ -1102,7 +1102,7 @@ paths:
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "glm-5.3"
+  model: "gpt-5.6-luna"
   temperature: 0.7
   timeout_seconds: 30
   search:
@@ -1113,7 +1113,7 @@ llm:
 `agents/coachAgent_Alfa.md`:
 ```markdown
 ---
-model: "glm-5.3"
+model: "gpt-5.6-luna"
 temperature: 0.7
 spending_profile:
   P: 0.08

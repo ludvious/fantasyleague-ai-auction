@@ -15,7 +15,7 @@ function calling) is untouched. Verified live against OpenCode Go during the
   (`title — url`) extracted from citations. Brave keeps today's
   `title — url` list unchanged.
 - `configs/llm.yaml` example moves entirely to OpenCode Go: bidding on
-  `/chat/completions` (OpenAI format, e.g. `glm-5.3`), search on `/responses`
+  `/chat/completions` (OpenAI format, e.g. `gpt-5.6-luna`), search on `/responses`
   with `gpt-5.6-luna`, single `OPENCODE_API_KEY`.
 - Single shared `httpx.Client` per run; search requests use full URLs like
   today's Brave GET. No new files, no backend classes: provider dispatch is
@@ -42,7 +42,7 @@ function calling) is untouched. Verified live against OpenCode Go during the
 llm:
   base_url: "https://opencode.ai/zen/go/v1"
   api_key_env: "OPENCODE_API_KEY"
-  model: "glm-5.3"
+  model: "gpt-5.6-luna"
   headers:                    # optional, applied to every request
     x-opencode-session: "…"  # optional; auto per-run default if omitted
   search:                     # optional; replaces llm.brave

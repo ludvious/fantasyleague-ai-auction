@@ -74,7 +74,7 @@ agents/
 
 ```markdown
 ---
-model: "glm-5.3"
+model: "gpt-5.6-luna"
 temperature: 0.7
 spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
 target_players: ["Lautaro Martínez"]
