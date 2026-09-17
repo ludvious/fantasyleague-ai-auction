@@ -24,8 +24,6 @@ def test_loads_front_matter_and_body(tmp_path):
     coach = coaches[0]
     assert coach["id"] == "joe"
     assert coach["name"] == "Joe"
-    assert coach["strategy"] == "llm"
-    assert coach["priority"] == 0
     assert coach["llm"]["model"] == "gpt-4o-mini"
     assert coach["llm"]["temperature"] == 0.4
     assert coach["profile"] == "Joe è aggressivo."
@@ -49,7 +47,6 @@ def test_files_are_sorted_and_numbered(tmp_path):
     coaches = load_coaches(tmp_path)
 
     assert [coach["name"] for coach in coaches] == ["Alfa", "Zeta"]
-    assert [coach["priority"] for coach in coaches] == [0, 1]
 
 
 def test_loads_max_bid_retries_front_matter(tmp_path):
@@ -110,19 +107,16 @@ def test_load_buyer_configs_merges_yaml_and_coaches(tmp_path):
     write_coach(tmp_path, "coachAgent_Joe.md", "body")
     config = {
         "paths": {"coaches": str(tmp_path)},
-        "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
     }
 
     buyers = load_buyer_configs(config)
 
     assert [buyer["id"] for buyer in buyers] == ["b1", "joe"]
-    assert buyers[1]["priority"] == 1
 
 
 def test_load_buyer_configs_without_coaches_returns_yaml_buyers():
-    config = {
-        "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}]
-    }
+    config = {"buyers": [{"id": "b1", "name": "Alpha", "llm": {}}]}
 
     assert load_buyer_configs(config) == config["buyers"]
 
@@ -131,7 +125,7 @@ def test_load_buyer_configs_rejects_id_collisions(tmp_path):
     write_coach(tmp_path, "coachAgent_b1.md", "body")
     config = {
         "paths": {"coaches": str(tmp_path)},
-        "buyers": [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {}}],
+        "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
     }
 
     with pytest.raises(ValueError, match="Duplicate buyer ids"):

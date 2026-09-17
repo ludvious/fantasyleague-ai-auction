@@ -1,4 +1,4 @@
-"""Deterministic auction engine."""
+"""Auction engine: player selection, bid collection, and outcomes."""
 
 from __future__ import annotations
 

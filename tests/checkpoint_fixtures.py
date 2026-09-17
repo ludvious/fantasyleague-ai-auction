@@ -72,7 +72,7 @@ def make_checkpoint() -> AuctionCheckpoint:
             BidderSnapshot(
                 id="buyer_1",
                 name="Alpha",
-                strategy="deterministic",
+                strategy="llm",
                 priority=0,
             )
         ],
@@ -157,13 +157,13 @@ def make_pool_exhaustion_checkpoint() -> AuctionCheckpoint:
             BidderSnapshot(
                 id="complete",
                 name="Complete",
-                strategy="deterministic",
+                strategy="llm",
                 priority=0,
             ),
             BidderSnapshot(
                 id="incomplete",
                 name="Incomplete",
-                strategy="deterministic",
+                strategy="llm",
                 priority=1,
             ),
         ],

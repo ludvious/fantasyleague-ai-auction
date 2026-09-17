@@ -226,23 +226,8 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
         if not str(buyer.get("name", "")).strip():
             raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
-        strategy = str(buyer.get("strategy", "deterministic")).lower()
-        if strategy not in ("deterministic", "random", "llm"):
-            raise ValueError(
-                f"'buyers[{index}].strategy' must be 'deterministic', 'random' or 'llm'"
-            )
-        if strategy == "llm":
-            validate_llm_buyer(buyer.get("llm"), index)
-        priority = buyer.get("priority")
-        if priority is not None and (
-            isinstance(priority, bool) or not isinstance(priority, int)
-        ):
-            raise ValueError(f"'buyers[{index}].priority' must be an int")
-    if coaches or any(
-        str(buyer.get("strategy", "deterministic")).lower() == "llm"
-        for buyer in buyer_list
-    ):
-        validate_global_llm(config.get("llm"))
+        validate_llm_buyer(buyer.get("llm"), index)
+    validate_global_llm(config.get("llm"))
 
 
 def load_config(path: Path) -> dict[str, Any]:

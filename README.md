@@ -43,12 +43,14 @@ The default configuration uses:
 - `data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx` as the player source;
 - a budget of 500 credits;
 - seed `42`;
-- four deterministic bidders;
+- four CoachAgents discovered from `agents/coach/`;
 - `data/results/report.json` for successful reports;
 - `data/checkpoints/checkpoint.json` for pool-exhaustion checkpoints that can
   be resumed.
 
-The output directories are created automatically when needed.
+The output directories are created automatically when needed. Running an
+auction requires the API key named by `llm.api_key_env` (see
+[CoachAgent](#coachagent-llm-bidders)).
 
 ## CLI options
 
@@ -114,9 +116,9 @@ failures do not write one.
 
 ## CoachAgent (LLM bidders)
 
-`configs/llm.yaml` is the example configuration for CoachAgent-driven
+`configs/default.yaml` is the example configuration for CoachAgent-driven
 auctions. Coaches are auto-discovered as `coachAgent_*.md` files in the
-directory named by `paths.coaches` (the example points at `agents/coach/`):
+directory named by `paths.coaches` (the default points at `agents/coach/`):
 
 ```yaml
 paths:
@@ -160,8 +162,8 @@ front-matter carries technical fields (`model`, `temperature`,
 `system_prompt`) validated with the LLM contract, and the markdown body is the
 agent profile. The system prompt is the shared `agents/prompts/system_prompt.md`
 (regulation rendered from the domain) plus the profile; an explicit
-`system_prompt` replaces it entirely. YAML `buyers` still work, and remain
-required for `deterministic`/`random` bidders.
+`system_prompt` replaces it entirely. Inline YAML `buyers` also work as
+CoachAgents, with the same per-buyer `llm` fields.
 
 Each coach loops over OpenAI-compatible `chat` calls with the fixed tool set
 `{search_info, submit_bid}` until it returns a bid that passes
@@ -194,10 +196,10 @@ caller, never by the engine.
 
 ### Resuming LLM checkpoints
 
-When a checkpoint contains `strategy: "llm"` buyers, the CLI writes an
-auto-generated `checkpoint.llm.yaml` sidecar next to it (`schema_version: 1`)
+When a pool-exhaustion checkpoint is written, the CLI writes an auto-generated
+`checkpoint.llm.yaml` sidecar next to it (`schema_version: 1`)
 with the global `llm` block and one per-buyer `llm` block carrying the fully
-resolved `system_prompt`. Resuming such a checkpoint requires the sidecar; a
+resolved `system_prompt`. Resuming a checkpoint requires the sidecar; a
 missing or invalid sidecar exits `1` before the auction starts. With
 `--resume`, the checkpoint plus sidecar are the only inputs: `--config` (and
 the original `coachAgent_*.md` files) stay unread. A second pool exhaustion
@@ -207,7 +209,7 @@ propagates the sidecar next to the new checkpoint.
 
 ```bash
 venv/bin/python main.py benchmark \
-  --config configs/llm.yaml \
+  --config configs/default.yaml \
   --runs 2 \
   --seed 42 \
   --output data/benchmarks/2026-08-18/
