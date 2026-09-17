@@ -42,6 +42,15 @@ def validate_llm_buyer(llm: Any, index: int | str) -> None:
         raise ValueError(
             f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1"
         )
+    max_bid_retries = llm.get("max_bid_retries")
+    if max_bid_retries is not None and (
+        isinstance(max_bid_retries, bool)
+        or not isinstance(max_bid_retries, int)
+        or max_bid_retries < 0
+    ):
+        raise ValueError(
+            f"'buyers[{index}].llm.max_bid_retries' must be an int >= 0"
+        )
     tools = llm.get("tools")
     if tools is not None and (
         not isinstance(tools, list)
@@ -217,23 +226,8 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
         if not str(buyer.get("name", "")).strip():
             raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
-        strategy = str(buyer.get("strategy", "deterministic")).lower()
-        if strategy not in ("deterministic", "random", "llm"):
-            raise ValueError(
-                f"'buyers[{index}].strategy' must be 'deterministic', 'random' or 'llm'"
-            )
-        if strategy == "llm":
-            validate_llm_buyer(buyer.get("llm"), index)
-        priority = buyer.get("priority")
-        if priority is not None and (
-            isinstance(priority, bool) or not isinstance(priority, int)
-        ):
-            raise ValueError(f"'buyers[{index}].priority' must be an int")
-    if coaches or any(
-        str(buyer.get("strategy", "deterministic")).lower() == "llm"
-        for buyer in buyer_list
-    ):
-        validate_global_llm(config.get("llm"))
+        validate_llm_buyer(buyer.get("llm") or {}, index)
+    validate_global_llm(config.get("llm"))
 
 
 def load_config(path: Path) -> dict[str, Any]:

@@ -49,13 +49,33 @@ def write_raw_config(path: Path, data: dict) -> None:
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
+def write_llm_run_config(
+    path: Path, workbook: Path, *, buyers: list[dict] | None = None, logs: Path | None = None
+) -> None:
+    data = base_llm_config(workbook)
+    if buyers is not None:
+        data["buyers"] = buyers
+    if logs is not None:
+        data["paths"]["logs"] = str(logs)
+    write_raw_config(path, data)
+
+
+def use_fake_llm(monkeypatch) -> None:
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+
+
 def make_checkpoint_file(tmp_path: Path, *, no_progress: bool = False) -> Path:
     checkpoint = make_pool_exhaustion_checkpoint()
     if no_progress:
         checkpoint.players[-1].position = Position.A
         checkpoint.unsold_players[0].position = Position.A
     path = tmp_path / "checkpoint.json"
-    return JsonStore().save_document(checkpoint, path)
+    saved = JsonStore().save_document(checkpoint, path)
+    (tmp_path / "checkpoint.llm.yaml").write_text(
+        yaml.safe_dump(llm_sidecar_payload()), encoding="utf-8"
+    )
+    return saved
 
 
 def capture_log_errors(monkeypatch) -> list[str]:
@@ -68,16 +88,13 @@ def capture_log_errors(monkeypatch) -> list[str]:
     return errors
 
 
-def test_cli_writes_report_for_complete_fixture(tmp_path):
+def test_cli_writes_report_for_complete_fixture(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     report = tmp_path / "report.json"
     write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
-    write_config(
-        config,
-        workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-    )
+    write_llm_run_config(config, workbook, logs=tmp_path / "logs")
 
     exit_code = main(
         [
@@ -98,16 +115,13 @@ def test_cli_writes_report_for_complete_fixture(tmp_path):
     assert len(data["squads"]["b1"]["players"]) == 25
 
 
-def test_cli_saves_checkpoint_and_returns_error_when_pool_is_too_small(tmp_path):
+def test_cli_saves_checkpoint_and_returns_error_when_pool_is_too_small(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     checkpoint = tmp_path / "checkpoint.json"
     write_workbook(workbook, {"A": 1})
-    write_config(
-        config,
-        workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-    )
+    write_llm_run_config(config, workbook, logs=tmp_path / "logs")
 
     exit_code = main(
         [
@@ -129,7 +143,8 @@ def test_cli_saves_checkpoint_and_returns_error_when_pool_is_too_small(tmp_path)
     assert data["missing_roles"]["b1"]["P"] == 3
 
 
-def test_cli_resumes_autonomous_checkpoint_without_config_or_players(tmp_path):
+def test_cli_resumes_autonomous_checkpoint_without_config_or_players(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     checkpoint = make_checkpoint_file(tmp_path)
     report = tmp_path / "report.json"
 
@@ -154,7 +169,8 @@ def test_cli_resumes_autonomous_checkpoint_without_config_or_players(tmp_path):
     assert data["players_sold"] == data["total_players"]
 
 
-def test_cli_incomplete_resume_writes_replacement_checkpoint(tmp_path):
+def test_cli_incomplete_resume_writes_replacement_checkpoint(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     checkpoint = make_checkpoint_file(tmp_path, no_progress=True)
     replacement = tmp_path / "replacement.json"
 
@@ -173,7 +189,8 @@ def test_cli_incomplete_resume_writes_replacement_checkpoint(tmp_path):
     assert loaded.error_code == "pool_exhausted"
 
 
-def test_cli_resume_defaults_replacement_to_input_checkpoint(tmp_path):
+def test_cli_resume_defaults_replacement_to_input_checkpoint(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     checkpoint = make_checkpoint_file(tmp_path, no_progress=True)
 
     exit_code = main(["--resume", str(checkpoint)])
@@ -209,7 +226,7 @@ def test_cli_configuration_error_does_not_write_resumable_checkpoint(tmp_path):
     write_config(
         config,
         workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+        [{"id": "b1", "name": "Alpha", "llm": {}}],
     )
     config_data = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_data["simulation"]["budget"] = 24
@@ -229,15 +246,12 @@ def test_cli_configuration_error_does_not_write_resumable_checkpoint(tmp_path):
 
 
 def test_cli_unexpected_engine_error_does_not_write_checkpoint(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     checkpoint = tmp_path / "checkpoint.json"
     write_workbook(workbook, {"A": 1})
-    write_config(
-        config,
-        workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-    )
+    write_llm_run_config(config, workbook, logs=tmp_path / "logs")
 
     def fail_inside_engine(self):
         raise RuntimeError("unexpected engine failure")
@@ -249,6 +263,7 @@ def test_cli_unexpected_engine_error_does_not_write_checkpoint(monkeypatch, tmp_
 
 
 def test_cli_resume_does_not_read_excel(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     checkpoint = make_checkpoint_file(tmp_path)
     report = tmp_path / "report.json"
 
@@ -263,7 +278,8 @@ def test_cli_resume_does_not_read_excel(monkeypatch, tmp_path):
 # — configuration contract (TODO 2) —
 
 
-def test_cli_ignores_legacy_config_keys(tmp_path):
+def test_cli_ignores_legacy_config_keys(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     report = tmp_path / "report.json"
@@ -276,8 +292,10 @@ def test_cli_ignores_legacy_config_keys(tmp_path):
                 "players": str(workbook),
                 "database": str(tmp_path / "missing.xlsx"),
                 "checkpoints": str(tmp_path / "legacy-checkpoints"),
+                "logs": str(tmp_path / "logs"),
             },
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+            "llm": base_llm_config(workbook)["llm"],
+            "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
         },
     )
 
@@ -297,7 +315,7 @@ def test_cli_requires_seed_in_config(tmp_path):
         {
             "simulation": {"budget": 500},
             "paths": {"players": str(workbook)},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+            "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
         },
     )
 
@@ -313,7 +331,7 @@ def test_cli_requires_players_path_in_config(tmp_path):
         {
             "simulation": {"budget": 500, "seed": 42},
             "paths": {},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
+            "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
         },
     )
 
@@ -321,16 +339,13 @@ def test_cli_requires_players_path_in_config(tmp_path):
     assert not report.exists()
 
 
-def test_cli_seed_overrides_yaml_seed(tmp_path):
+def test_cli_seed_overrides_yaml_seed(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     checkpoint = tmp_path / "checkpoint.json"
     write_workbook(workbook, {"A": 1})
-    write_config(
-        config,
-        workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-    )
+    write_llm_run_config(config, workbook, logs=tmp_path / "logs")
 
     exit_code = main(
         [
@@ -348,19 +363,16 @@ def test_cli_seed_overrides_yaml_seed(tmp_path):
     assert data["simulation"]["seed"] == 999
 
 
-def test_cli_players_override_beats_yaml(tmp_path):
+def test_cli_players_override_beats_yaml(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     report = tmp_path / "report.json"
     write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": str(tmp_path / "missing.xlsx")},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-        },
-    )
+    data = base_llm_config(workbook)
+    data["paths"]["players"] = str(tmp_path / "missing.xlsx")
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
 
     exit_code = main(
         [
@@ -377,20 +389,17 @@ def test_cli_players_override_beats_yaml(tmp_path):
     assert report.exists()
 
 
-def test_cli_output_override_beats_yaml(tmp_path):
+def test_cli_output_override_beats_yaml(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     yaml_report = tmp_path / "yaml-report.json"
     cli_report = tmp_path / "cli-report.json"
     write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": str(workbook), "output": str(yaml_report)},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-        },
-    )
+    data = base_llm_config(workbook)
+    data["paths"]["output"] = str(yaml_report)
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
 
     assert main(["--config", str(config), "--output", str(cli_report)]) == 0
     assert cli_report.exists()
@@ -496,25 +505,6 @@ def test_cli_rejects_non_int_budget(tmp_path, monkeypatch):
     assert any("'simulation.budget' must be an int >= 25" in error for error in errors)
 
 
-def test_cli_rejects_unknown_strategy(tmp_path, monkeypatch):
-    config = tmp_path / "config.yaml"
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": "dummy.xlsx"},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "chaos"}],
-        },
-    )
-    errors = capture_log_errors(monkeypatch)
-
-    assert main(["--config", str(config)]) == 1
-    assert any(
-        "'buyers[0].strategy' must be 'deterministic', 'random' or 'llm'" in error
-        for error in errors
-    )
-
-
 def test_cli_rejects_buyer_without_name(tmp_path, monkeypatch):
     config = tmp_path / "config.yaml"
     write_raw_config(
@@ -533,44 +523,20 @@ def test_cli_rejects_buyer_without_name(tmp_path, monkeypatch):
     )
 
 
-def test_cli_buyer_strategy_defaults_to_deterministic(tmp_path):
+def test_cli_buyer_priority_defaults_to_index(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     checkpoint = tmp_path / "checkpoint.json"
     write_workbook(workbook, {"A": 1})
-    write_raw_config(
+    write_llm_run_config(
         config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": str(workbook)},
-            "buyers": [{"id": "b1", "name": "Alpha"}],
-        },
-    )
-
-    exit_code = main(
-        ["--config", str(config), "--checkpoint", str(checkpoint)]
-    )
-
-    assert exit_code == 1
-    data = json.loads(checkpoint.read_text(encoding="utf-8"))
-    assert data["buyers"][0]["strategy"] == "deterministic"
-
-
-def test_cli_buyer_priority_defaults_to_index(tmp_path):
-    workbook = tmp_path / "players.xlsx"
-    config = tmp_path / "config.yaml"
-    checkpoint = tmp_path / "checkpoint.json"
-    write_workbook(workbook, {"A": 1})
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": str(workbook)},
-            "buyers": [
-                {"id": "b1", "name": "Alpha"},
-                {"id": "b2", "name": "Beta"},
-            ],
-        },
+        workbook,
+        logs=tmp_path / "logs",
+        buyers=[
+            {"id": "b1", "name": "Alpha", "llm": {}},
+            {"id": "b2", "name": "Beta", "llm": {}},
+        ],
     )
 
     exit_code = main(
@@ -582,21 +548,17 @@ def test_cli_buyer_priority_defaults_to_index(tmp_path):
     assert [buyer["priority"] for buyer in data["buyers"]] == [0, 1]
 
 
-def test_cli_log_to_file_creates_log_file(tmp_path):
+def test_cli_log_to_file_creates_log_file(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     report = tmp_path / "report.json"
     log_dir = tmp_path / "logs"
     write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500, "seed": 42},
-            "paths": {"players": str(workbook), "logs": str(log_dir)},
-            "buyers": [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-            "logging": {"level": "INFO", "log_to_file": True},
-        },
-    )
+    data = base_llm_config(workbook)
+    data["paths"]["logs"] = str(log_dir)
+    data["logging"] = {"level": "INFO", "log_to_file": True}
+    write_raw_config(config, data)
 
     assert main(["--config", str(config), "--output", str(report)]) == 0
     assert list(log_dir.glob("fantacalcio_*.log"))
@@ -615,10 +577,8 @@ def test_default_config_satisfies_contract():
     assert default["simulation"]["budget"] == 500
     assert default["simulation"]["seed"] == 42
     assert default["paths"]["players"]
-    assert default["buyers"]
-    for buyer in default["buyers"]:
-        assert buyer["id"] and buyer["name"]
-        assert buyer["strategy"] in ("deterministic", "random")
+    assert default["paths"]["coaches"]
+    assert default["llm"]["api_key_env"]
 
 
 def test_legacy_root_config_removed():
@@ -681,7 +641,7 @@ def base_llm_config(workbook: Path) -> dict:
                 "api_key_env": "TEST_BRAVE_API_KEY",
             },
         },
-        "buyers": [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {}}],
+        "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
     }
 
 
@@ -719,6 +679,48 @@ def test_cli_llm_run_completes_with_fake_client(monkeypatch, tmp_path):
     ) == 25
 
 
+def test_cli_inline_buyer_without_llm_block(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_llm_run_config(
+        config,
+        workbook,
+        buyers=[{"id": "b1", "name": "Alpha"}],
+        logs=tmp_path / "logs",
+    )
+
+    exit_code = main(["--config", str(config), "--output", str(report)])
+
+    assert exit_code == 0
+    assert json.loads(report.read_text(encoding="utf-8"))["players_sold"] == 25
+
+
+def test_build_bidders_passes_max_bid_retries(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "model": "gpt-4o-mini",
+    }
+    buyers = [
+        {
+            "id": "b1",
+            "name": "Alpha",
+            "llm": {"max_bid_retries": 0},
+        }
+    ]
+
+    bidders = cli_module._build_bidders(
+        buyers, llm_config=llm_config, run_dir=tmp_path, budget=500
+    )
+
+    assert bidders[0].max_bid_retries == 0
+
+
 def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
     monkeypatch.delenv("TEST_LLM_API_KEY", raising=False)
     monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
@@ -736,47 +738,51 @@ def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
     ("buyers_override", "message"),
     [
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm"}],
-            "'buyers[0].llm' must be a mapping",
-        ),
-        (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"temperature": "hot"}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"temperature": "hot"}}],
             "'buyers[0].llm.temperature' must be a number in [0, 2]",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"temperature": 2.5}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"temperature": 2.5}}],
             "'buyers[0].llm.temperature' must be a number in [0, 2]",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"max_tool_iterations": 0}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"max_tool_iterations": 0}}],
             "'buyers[0].llm.max_tool_iterations' must be an int >= 1",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["search_info"]}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"max_bid_retries": -1}}],
+            "'buyers[0].llm.max_bid_retries' must be an int >= 0",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "llm": {"max_bid_retries": True}}],
+            "'buyers[0].llm.max_bid_retries' must be an int >= 0",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "llm": {"tools": ["search_info"]}}],
             "must contain 'submit_bid'",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["submit_bid", "mystery"]}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"tools": ["submit_bid", "mystery"]}}],
             "must be a non-empty subset",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": []}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"tools": []}}],
             "must be a non-empty subset",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": 0.5, "D": 0.5, "C": 0.5, "A": 0.5}}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"spending_profile": {"P": 0.5, "D": 0.5, "C": 0.5, "A": 0.5}}}],
             "must sum to 1",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": 0.5, "X": 0.5}}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"spending_profile": {"P": 0.5, "X": 0.5}}}],
             "keys must be a subset",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"spending_profile": {"P": -0.1, "D": 0.2, "C": 0.4, "A": 0.5}}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"spending_profile": {"P": -0.1, "D": 0.2, "C": 0.4, "A": 0.5}}}],
             "must be a number in [0, 1]",
         ),
         (
-            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"target_players": ["Lautaro", ""]}}],
+            [{"id": "b1", "name": "Alpha", "llm": {"target_players": ["Lautaro", ""]}}],
             "list of non-empty strings",
         ),
     ],
@@ -1135,27 +1141,11 @@ def test_cli_llm_exhaustion_writes_checkpoint_and_sidecar(monkeypatch, tmp_path)
     assert "P: 3, D: 8, C: 8, A: 6" in rendered
 
 
-def test_cli_deterministic_exhaustion_writes_no_sidecar(tmp_path):
-    workbook = tmp_path / "players.xlsx"
-    config = tmp_path / "config.yaml"
-    checkpoint = tmp_path / "checkpoint.json"
-    write_workbook(workbook, {"A": 1})
-    write_config(
-        config,
-        workbook,
-        [{"id": "b1", "name": "Alpha", "strategy": "deterministic"}],
-    )
-
-    assert main(["--config", str(config), "--checkpoint", str(checkpoint)]) == 1
-    assert checkpoint.exists()
-    assert not (tmp_path / "checkpoint.llm.yaml").exists()
-
-
 def make_llm_checkpoint(tmp_path, *, no_progress: bool = False) -> Path:
     checkpoint = make_checkpoint_file(tmp_path, no_progress=no_progress)
     data = json.loads(checkpoint.read_text(encoding="utf-8"))
     data["buyers"] = [
-        {"id": "complete", "name": "Complete", "strategy": "deterministic", "priority": 0},
+        {"id": "complete", "name": "Complete", "strategy": "llm", "priority": 0},
         {"id": "incomplete", "name": "Incomplete", "strategy": "llm", "priority": 1},
     ]
     checkpoint.write_text(json.dumps(data), encoding="utf-8")

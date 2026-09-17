@@ -1,14 +1,14 @@
 # fantasyleague-ai-auction
 
 A non-interactive CLI for simulating an Italian fantasy-football auction.
-The MVP is synchronous, deterministic, and reproducible through seeded
-`random.Random` instances. Auction rules live in the domain, while bidder
-strategies, Excel input, JSON persistence, and the CLI remain separate
-adapters.
+The MVP is synchronous and reproducible through seeded `random.Random`
+instances for player selection; bidding is driven by LLM `CoachAgent`s.
+Auction rules live in the domain, while bidder strategies, Excel input, JSON
+persistence, and the CLI remain separate adapters.
 
 ## Current status
 
-The deterministic auction MVP is implemented and P1–P4 are complete:
+The auction MVP is implemented and P1–P4 are complete:
 
 - strict bid validation is centralized in `Squad`;
 - invalid bidder output and bidder exceptions are isolated and recorded as
@@ -19,26 +19,28 @@ The deterministic auction MVP is implemented and P1–P4 are complete:
 - pool-exhaustion checkpoints are autonomous and resume with `--resume`;
 - LLM-driven bidders (`CoachAgent`) loop over OpenAI-compatible
   function-calling until a domain-valid `submit_bid` arrives, with per-agent
-  JSONL traces under `logs/traces/`;
+  JSONL traces under `logs/traces/`; a domain-rejected `submit_bid` is fed
+  back as that tool call's result and earns an extra LLM call, up to
+  `max_bid_retries` (`search_info` is hidden once it has been used, since the
+  retrieved info stays in the conversation); with retries exhausted the
+  bidder passes (`0`);
 - CoachAgent profiles are auto-discovered from `coachAgent_*.md` files in
   `paths.coaches` (front-matter for technical fields, markdown body for the
   strategy); the shared prompt lives in `agents/prompts/system_prompt.md` with
   placeholders filled from the domain;
 - after every resolved lot the engine notifies the polled bidders through
   `observe(result, squad)`: `CoachAgent` traces `auction_result` (won/lost) and
-  logs it; deterministic/random bidders are no-ops;
+  logs it;
 - bids are collected sequentially in bidder order, with validation and issue
   recording inline;
-- checkpoints containing `llm` buyers save a `checkpoint.llm.yaml` sidecar and
+- pool-exhaustion checkpoints save a `checkpoint.llm.yaml` sidecar and
   resume from it (the resolved `system_prompt` is stored per buyer);
 - the `benchmark` subcommand runs multiple auctions and aggregates pure
   per-agent metrics into `metrics.json`, `metrics.csv`, and a console table.
 
 Latest verification:
 
-- `venv/bin/pytest -q -W error`: **210 tests passed**;
-- real-workbook simulation: **100 players sold**, **37 unsold**, and **4
-  complete squads** of 25 players.
+- `venv/bin/pytest -q -W error`: **211 tests passed**.
 
 P1 resumes only between auction rounds, after the current player pool is
 exhausted. It does not persist an arbitrary mid-auction state, event history,
@@ -77,29 +79,27 @@ and continues with the remaining bidders.
 
 ## Configuration
 
-`configs/default.yaml` is the active default configuration. Bidders support
-the `deterministic`, `random`, and `llm` strategies:
+`configs/default.yaml` is the active default configuration. Every buyer is an
+LLM `CoachAgent`; coaches are discovered from `paths.coaches` (the default
+points at `agents/coach/coachAgent_*.md`):
 
 ```yaml
 simulation:
   budget: 500
   seed: 42
 
-buyers:
-  - id: buyer_1
-    name: Squadra Alfa
-    strategy: deterministic
-    priority: 0
-  - id: buyer_2
-    name: Squadra Beta
-    strategy: random
+paths:
+  players: "data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx"
+  coaches: "agents/coach"
+
+llm:
+  base_url: "https://opencode.ai/zen/go/v1"
+  api_key_env: "OPENCODE_API_KEY"
+  model: "deepseek-v4-flash"
 ```
 
-`DeterministicBidder` produces a stable priority-based bid. `RandomBidder`
-uses an injected seeded random generator and can return zero. Neither bidder
-mutates the squad or player; the domain validates and applies purchases.
-`configs/llm.yaml` is the example configuration for CoachAgent-driven auctions
-(discovering `agents/coach/coachAgent_*.md`); see the contract table below.
+Additional buyers can be declared inline under `buyers` (same `llm` fields as
+the coach front-matter); see the contract table below.
 
 ### Configuration contract
 
@@ -115,7 +115,7 @@ reads these fields:
 | `paths` | `output` | no | report path or directory |
 | `paths` | `checkpoint` | no | checkpoint path or directory |
 | `paths` | `logs` | no | log directory, default `logs` |
-| `buyers` | list | no | each entry has `id`, `name`, `strategy` (`deterministic`, `random` or `llm`, default `deterministic`), `priority` (default: list index), and `llm` (required mapping when `strategy: "llm"`); either `buyers` or `paths.coaches` must provide at least one buyer |
+| `buyers` | list | no | each entry has `id`, `name`, and `llm` (optional mapping, same contract as `buyers[].llm` below); either `buyers` or `paths.coaches` must provide at least one buyer |
 | `llm` | `base_url` | yes* | non-empty string, OpenAI-compatible endpoint |
 | `llm` | `api_key_env` | yes* | environment variable name holding the API key; the key itself never appears in config files |
 | `llm` | `model` | yes* | model name passed to the chat API |
@@ -126,16 +126,16 @@ reads these fields:
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
 | `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
 | `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `3` |
+| `buyers[].llm` | `max_bid_retries` | no | int >= 0, default `2`; extra LLM calls earned by a rejected `submit_bid` (once `search_info` has run for the player, retries can only call `submit_bid`); `0` = rejections consume the shared call budget |
 | `buyers[].llm` | `tools` | no | non-empty subset of `{search_info, submit_bid}` containing `submit_bid`; default: both |
 | `buyers[].llm` | `spending_profile` | no | mapping role → share in `[0, 1]`, keys ⊆ `{P, D, C, A}`, shares sum to 1 (± 0.01); used only by metrics (absent → uniform target) |
 | `buyers[].llm` | `target_players` | no | list of non-empty strings |
 | `logging` | `level` | no | default `INFO` |
 | `logging` | `log_to_file` | no | default `false` |
 
-*Required only when at least one buyer has `strategy: "llm"` (including
-discovered coaches). Live search is optional: a missing or placeholder search
-key disables live search (the `search_info` tool returns
-`search non disponibile`).
+*Always required: every buyer is an LLM CoachAgent. Live search is optional:
+a missing or placeholder search key disables live search (the `search_info`
+tool returns `search non disponibile`).
 
 At startup `main()` loads a gitignored `.env` file from the working directory
 into `os.environ` (real shell variables win; template: `.env.example`); keys
@@ -153,9 +153,8 @@ Unknown sections and fields are ignored. Precedence:
   corresponding YAML values;
 - `--config` replaces `configs/default.yaml` entirely, without merging;
 - with `--resume`, the checkpoint snapshots are authoritative: YAML, the
-  Excel workbook, and `--seed` are ignored; when the checkpoint has `llm`
-  buyers, the `checkpoint.llm.yaml` sidecar next to it supplies the LLM
-  configuration and is required.
+  Excel workbook, and `--seed` are ignored; the `checkpoint.llm.yaml` sidecar
+  next to the checkpoint supplies the LLM configuration and is required.
 
 The legacy root `config.yaml` (pre-MVP, with `budget_iniziale`, `database`,
 `checkpoints`, `llm`, and `auction` sections) has been removed.
@@ -207,22 +206,21 @@ without writing one.
 
 ### Traces and the LLM sidecar
 
-Every `llm` buyer writes one JSON object per event (context, llm_call, usage,
+Every buyer writes one JSON object per event (context, llm_call, usage,
 thinking, tool_call, tool_result, bid, no_bid, error, auction_result, ...) to
 `logs/traces/<run_dir>/<buyer_id>.jsonl`, flushed immediately. The `<run_dir>`
 is chosen by the caller (`main.py` or `benchmark`), never by the engine; each
 invocation uses a fresh timestamped directory. Reasoning (`thinking`) is also
 logged to the application console at INFO.
 
-On pool exhaustion with at least one `llm` buyer, the CLI writes
-`<checkpoint>.llm.yaml` next to the checkpoint (`schema_version: 1`) with the
-global `llm` block and one per-buyer `llm` block containing the fully resolved
-`system_prompt` (the `api_key_env` variable name, never the key itself).
-Resuming a checkpoint with `llm` buyers requires a valid sidecar: missing or
-malformed sidecars exit `1` before the auction, and the stored prompt is used
-as-is, so the original config and `coachAgent_*.md` files are not needed. A
-second exhaustion propagates the sidecar next to the new checkpoint.
-Checkpoints without `llm` buyers never write one.
+On pool exhaustion the CLI writes `<checkpoint>.llm.yaml` next to the
+checkpoint (`schema_version: 1`) with the global `llm` block and one per-buyer
+`llm` block containing the fully resolved `system_prompt` (the `api_key_env`
+variable name, never the key itself). Resuming a checkpoint requires a valid
+sidecar: missing or malformed sidecars exit `1` before the auction, and the
+stored prompt is used as-is, so the original config and `coachAgent_*.md`
+files are not needed. A second exhaustion propagates the sidecar next to the
+new checkpoint.
 
 ### Benchmark output
 
@@ -238,7 +236,6 @@ report with `completed: false` and the benchmark continues.
 ```text
 agents/
   base_agent.py       Bidder protocol (bid + observe)
-  buyer_agent.py      DeterministicBidder and RandomBidder
   trace.py            TraceLogger: per-agent JSONL events
   llm_client.py       LlmClient (shared httpx) and tool/search schemas
   coach_agent.py      CoachAgent (LLM bidder)
@@ -264,8 +261,7 @@ utils/
   logger.py            Logging setup
 
 configs/
-  default.yaml        Active default simulation configuration
-  llm.yaml            Example CoachAgent auction configuration (discovers
+  default.yaml        Active default CoachAgent configuration (discovers
                       agents/coach/coachAgent_*.md)
 
 data/
@@ -285,8 +281,8 @@ venv/bin/pytest -q -W error
 ```
 
 The test suite covers roster invariants, strict bid validation, invalid and
-raising bidders, tie and no-bid outcomes, deterministic and random bidder
-behavior, canonical players, Excel schema handling, JSON persistence, pool
+raising bidders, tie and no-bid outcomes,
+canonical players, Excel schema handling, JSON persistence, pool
 exhaustion, configuration contract validation, LLM configuration validation,
 coach profile discovery and front-matter parsing, common-prompt rendering,
 domain-validated bid retries, outcome notifications, sidecar save/resume
