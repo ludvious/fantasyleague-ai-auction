@@ -19,6 +19,7 @@ FRONT_MATTER_FIELDS = (
     "personality",
     "temperature",
     "max_tool_iterations",
+    "max_bid_retries",
     "tools",
     "spending_profile",
     "target_players",

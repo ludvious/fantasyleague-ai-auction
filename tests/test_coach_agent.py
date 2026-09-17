@@ -20,9 +20,11 @@ class FakeClient:
     def __init__(self, responses):
         self.responses = list(responses)
         self.messages_seen = []
+        self.tools_seen = []
 
     def chat(self, messages, tools, model, temperature):
         self.messages_seen.append(list(messages))
+        self.tools_seen.append(list(tools))
         return self.responses.pop(0)
 
     def search_info(self, query, count):
@@ -178,6 +180,69 @@ def test_iteration_cap_returns_zero(tmp_path):
     assert len(client.messages_seen) == 2
     last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
     assert last["content"] == {"reason": "iteration_cap"}
+
+
+def test_rejected_bid_earns_extra_llm_call(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("submit_bid", {"amount": 9999})),
+        chat_response(tool_call("submit_bid", {"amount": 10})),
+    ])
+    manager, _ = make_manager(
+        tmp_path, client, max_tool_iterations=1, max_bid_retries=1
+    )
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    assert len(client.messages_seen) == 2
+
+
+def test_rejected_bid_stops_after_retry_budget(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("submit_bid", {"amount": 9999})),
+        chat_response(tool_call("submit_bid", {"amount": 8888})),
+    ])
+    manager, trace_path = make_manager(
+        tmp_path, client, max_tool_iterations=1, max_bid_retries=1
+    )
+
+    assert manager.bid(make_player(), make_squad()) == 0
+
+    assert len(client.messages_seen) == 2
+    last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last["phase"] == "no_bid"
+    assert last["content"] == {"reason": "iteration_cap"}
+
+
+def test_retry_after_search_offers_only_submit_bid(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("search_info", {"query": "Lautaro"})),
+        chat_response(tool_call("submit_bid", {"amount": 9999})),
+        chat_response(tool_call("submit_bid", {"amount": 10})),
+    ])
+    manager, _ = make_manager(
+        tmp_path, client, max_tool_iterations=2, max_bid_retries=1
+    )
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    names = [schema["function"]["name"] for schema in client.tools_seen[2]]
+    assert names == ["submit_bid"]
+
+
+def test_retry_without_prior_search_keeps_search_available(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("submit_bid", {"amount": 9999})),
+        chat_response(tool_call("search_info", {"query": "Lautaro"})),
+        chat_response(tool_call("submit_bid", {"amount": 10})),
+    ])
+    manager, _ = make_manager(
+        tmp_path, client, max_tool_iterations=2, max_bid_retries=1
+    )
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    names = [schema["function"]["name"] for schema in client.tools_seen[1]]
+    assert names == ["search_info", "submit_bid"]
 
 
 def test_chat_exception_is_traced_and_propagates(tmp_path):

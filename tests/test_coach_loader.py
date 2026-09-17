@@ -52,6 +52,16 @@ def test_files_are_sorted_and_numbered(tmp_path):
     assert [coach["priority"] for coach in coaches] == [0, 1]
 
 
+def test_loads_max_bid_retries_front_matter(tmp_path):
+    write_coach(
+        tmp_path, "coachAgent_Joe.md", "---\nmax_bid_retries: 1\n---\nbody"
+    )
+
+    coach = load_coaches(tmp_path)[0]
+
+    assert coach["llm"]["max_bid_retries"] == 1
+
+
 def test_unknown_front_matter_field_rejected(tmp_path):
     write_coach(tmp_path, "coachAgent_Joe.md", "---\nunknown: 1\n---\nbody")
 

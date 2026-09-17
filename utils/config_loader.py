@@ -42,6 +42,15 @@ def validate_llm_buyer(llm: Any, index: int | str) -> None:
         raise ValueError(
             f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1"
         )
+    max_bid_retries = llm.get("max_bid_retries")
+    if max_bid_retries is not None and (
+        isinstance(max_bid_retries, bool)
+        or not isinstance(max_bid_retries, int)
+        or max_bid_retries < 0
+    ):
+        raise ValueError(
+            f"'buyers[{index}].llm.max_bid_retries' must be an int >= 0"
+        )
     tools = llm.get("tools")
     if tools is not None and (
         not isinstance(tools, list)

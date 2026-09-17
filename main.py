@@ -166,6 +166,7 @@ def _build_bidders(
                         override=merged.get("system_prompt"),
                     ),
                     max_tool_iterations=int(merged.get("max_tool_iterations", 3)),
+                    max_bid_retries=int(merged.get("max_bid_retries", 2)),
                     tools=tuple(merged.get("tools", CoachAgent.DEFAULT_TOOLS)),
                 )
             )

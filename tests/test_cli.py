@@ -719,6 +719,30 @@ def test_cli_llm_run_completes_with_fake_client(monkeypatch, tmp_path):
     ) == 25
 
 
+def test_build_bidders_passes_max_bid_retries(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    llm_config = {
+        "base_url": "https://api.test/v1",
+        "api_key_env": "TEST_LLM_API_KEY",
+        "model": "gpt-4o-mini",
+    }
+    buyers = [
+        {
+            "id": "b1",
+            "name": "Alpha",
+            "strategy": "llm",
+            "llm": {"max_bid_retries": 0},
+        }
+    ]
+
+    bidders = cli_module._build_bidders(
+        buyers, seed=1, llm_config=llm_config, run_dir=tmp_path, budget=500
+    )
+
+    assert bidders[0].max_bid_retries == 0
+
+
 def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
     monkeypatch.delenv("TEST_LLM_API_KEY", raising=False)
     monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
@@ -750,6 +774,14 @@ def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
         (
             [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"max_tool_iterations": 0}}],
             "'buyers[0].llm.max_tool_iterations' must be an int >= 1",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"max_bid_retries": -1}}],
+            "'buyers[0].llm.max_bid_retries' must be an int >= 0",
+        ),
+        (
+            [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"max_bid_retries": True}}],
+            "'buyers[0].llm.max_bid_retries' must be an int >= 0",
         ),
         (
             [{"id": "b1", "name": "Alpha", "strategy": "llm", "llm": {"tools": ["search_info"]}}],

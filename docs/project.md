@@ -19,7 +19,11 @@ The deterministic auction MVP is implemented and P1–P4 are complete:
 - pool-exhaustion checkpoints are autonomous and resume with `--resume`;
 - LLM-driven bidders (`CoachAgent`) loop over OpenAI-compatible
   function-calling until a domain-valid `submit_bid` arrives, with per-agent
-  JSONL traces under `logs/traces/`;
+  JSONL traces under `logs/traces/`; a domain-rejected `submit_bid` is fed
+  back as that tool call's result and earns an extra LLM call, up to
+  `max_bid_retries` (`search_info` is hidden once it has been used, since the
+  retrieved info stays in the conversation); with retries exhausted the
+  bidder passes (`0`);
 - CoachAgent profiles are auto-discovered from `coachAgent_*.md` files in
   `paths.coaches` (front-matter for technical fields, markdown body for the
   strategy); the shared prompt lives in `agents/prompts/system_prompt.md` with
@@ -126,6 +130,7 @@ reads these fields:
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |
 | `buyers[].llm` | `temperature` | no | number in `[0, 2]`, overrides the global default |
 | `buyers[].llm` | `max_tool_iterations` | no | int >= 1, default `3` |
+| `buyers[].llm` | `max_bid_retries` | no | int >= 0, default `2`; extra LLM calls earned by a rejected `submit_bid` (once `search_info` has run for the player, retries can only call `submit_bid`); `0` = rejections consume the shared call budget |
 | `buyers[].llm` | `tools` | no | non-empty subset of `{search_info, submit_bid}` containing `submit_bid`; default: both |
 | `buyers[].llm` | `spending_profile` | no | mapping role → share in `[0, 1]`, keys ⊆ `{P, D, C, A}`, shares sum to 1 (± 0.01); used only by metrics (absent → uniform target) |
 | `buyers[].llm` | `target_players` | no | list of non-empty strings |
