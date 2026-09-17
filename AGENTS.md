@@ -43,7 +43,7 @@ venv/bin/python main.py benchmark --config configs/default.yaml --runs 2
 ## CoachAgent (LLM bidders)
 
 - One shared `LlmClient` (httpx) per run; `CoachAgent` loops function-calling over `DEFAULT_TOOLS = ("search_info", "submit_bid")` until a domain-valid bid (`Squad.validate_bid`) or the iteration cap.
-- Coaches are auto-discovered from `coachAgent_*.md` files in `paths.coaches` (example: `agents/coach/`): optional YAML front-matter (`model`, `temperature`, `max_tool_iterations`, `tools`, `spending_profile`, `target_players`, `system_prompt`) plus a markdown profile body. No YAML `buyers` entry needed.
+- Coaches are auto-discovered from `coachAgent_*.md` files in `paths.coaches` (example: `agents/coach/`): optional YAML front-matter (`model`, `temperature`, `max_tool_iterations`, `max_bid_retries`, `tools`, `spending_profile`, `target_players`, `system_prompt`) plus a markdown profile body. No YAML `buyers` entry needed.
 - The system prompt is `prompts/system_prompt.md` (shared, with placeholders filled from `core/models.py` + budget) + structured fields + profile body; an explicit `system_prompt` wins over everything.
 - After every resolved lot the engine calls `bidder.observe(result, squad)` on the bidders that were polled: `CoachAgent` traces `auction_result` (`won` with player/price/updated roster, `lost` otherwise) and logs it. This is the seam for future per-agent session memory.
 - Traces go to `logs/traces/<run_dir>/<buyer_id>.jsonl` (one JSON object per event, flushed immediately). `<run_dir>` is chosen by `main.py`/`benchmark`, never the engine.

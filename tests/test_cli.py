@@ -679,6 +679,25 @@ def test_cli_llm_run_completes_with_fake_client(monkeypatch, tmp_path):
     ) == 25
 
 
+def test_cli_inline_buyer_without_llm_block(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    report = tmp_path / "report.json"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_llm_run_config(
+        config,
+        workbook,
+        buyers=[{"id": "b1", "name": "Alpha"}],
+        logs=tmp_path / "logs",
+    )
+
+    exit_code = main(["--config", str(config), "--output", str(report)])
+
+    assert exit_code == 0
+    assert json.loads(report.read_text(encoding="utf-8"))["players_sold"] == 25
+
+
 def test_build_bidders_passes_max_bid_retries(monkeypatch, tmp_path):
     monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
     monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
@@ -718,10 +737,6 @@ def test_cli_missing_llm_api_key_fails_before_auction(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("buyers_override", "message"),
     [
-        (
-            [{"id": "b1", "name": "Alpha"}],
-            "'buyers[0].llm' must be a mapping",
-        ),
         (
             [{"id": "b1", "name": "Alpha", "llm": {"temperature": "hot"}}],
             "'buyers[0].llm.temperature' must be a number in [0, 2]",

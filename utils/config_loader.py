@@ -226,7 +226,7 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
         if not str(buyer.get("name", "")).strip():
             raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
-        validate_llm_buyer(buyer.get("llm"), index)
+        validate_llm_buyer(buyer.get("llm") or {}, index)
     validate_global_llm(config.get("llm"))
 
 

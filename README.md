@@ -158,12 +158,13 @@ Sei il coach della Squadra Alfa. Stile prudente: ...
 
 The filename derives the coach id (`coachAgent_Alfa.md` → `alfa`); the optional
 front-matter carries technical fields (`model`, `temperature`,
-`max_tool_iterations`, `tools`, `spending_profile`, `target_players`,
-`system_prompt`) validated with the LLM contract, and the markdown body is the
-agent profile. The system prompt is the shared `agents/prompts/system_prompt.md`
-(regulation rendered from the domain) plus the profile; an explicit
-`system_prompt` replaces it entirely. Inline YAML `buyers` also work as
-CoachAgents, with the same per-buyer `llm` fields.
+`max_tool_iterations`, `max_bid_retries`, `tools`, `spending_profile`,
+`target_players`, `system_prompt`) validated with the LLM contract, and the
+markdown body is the agent profile. The system prompt is the shared
+`agents/prompts/system_prompt.md` (regulation rendered from the domain) plus
+the profile; an explicit `system_prompt` replaces it entirely. Inline YAML
+`buyers` also work as CoachAgents, with the same per-buyer `llm` fields
+(optional; omitted fields inherit the global `llm` block).
 
 Each coach loops over OpenAI-compatible `chat` calls with the fixed tool set
 `{search_info, submit_bid}` until it returns a bid that passes

@@ -31,7 +31,7 @@ while preserving the complete partial-auction report.
 
 The CLI now validates the configuration contract up front (`simulation.seed`
 int, `simulation.budget` int ≥ 25, non-empty `buyers` list with valid
-`id`/`name`/`strategy`/`priority`) and reports clear, uniform error messages;
+`id`/`name`) and reports clear, uniform error messages;
 `tests/test_cli.py` covers the contract without moving CLI concerns into the
 domain.
 
@@ -48,8 +48,8 @@ domain.
   ordering identical to the original design;
 - `benchmark` CLI subcommand with pure metrics (`metrics.json`,
   `metrics.csv`, console table) and `completed: false` for exhausted runs;
-- sidecar-based resume: `checkpoint.llm.yaml` written next to checkpoints
-  with `llm` buyers, required and authoritative on `--resume`, propagated on
+- sidecar-based resume: `checkpoint.llm.yaml` written next to every
+  checkpoint, required and authoritative on `--resume`, propagated on
   a second exhaustion;
 - configuration contract extended with the global `llm` block and per-buyer
   `llm` blocks (temperature, max tool iterations, tools, spending profile,

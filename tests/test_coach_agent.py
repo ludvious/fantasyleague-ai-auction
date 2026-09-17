@@ -21,6 +21,7 @@ class FakeClient:
         self.responses = list(responses)
         self.messages_seen = []
         self.tools_seen = []
+        self.searches = []
 
     def chat(self, messages, tools, model, temperature):
         self.messages_seen.append(list(messages))
@@ -28,6 +29,7 @@ class FakeClient:
         return self.responses.pop(0)
 
     def search_info(self, query, count):
+        self.searches.append(query)
         return "1. Notizia di prova — https://example.com"
 
 
@@ -180,6 +182,21 @@ def test_iteration_cap_returns_zero(tmp_path):
     assert len(client.messages_seen) == 2
     last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
     assert last["content"] == {"reason": "iteration_cap"}
+
+
+def test_repeated_search_is_not_executed(tmp_path):
+    client = FakeClient([
+        chat_response(tool_call("search_info", {"query": "Lautaro"})),
+        chat_response(
+            tool_call("search_info", {"query": "Lautaro"}, call_id="call_2"),
+            tool_call("submit_bid", {"amount": 3}, call_id="call_3"),
+        ),
+    ])
+    manager, _ = make_manager(tmp_path, client)
+
+    assert manager.bid(make_player(), make_squad()) == 3
+
+    assert client.searches == ["Lautaro"]
 
 
 def test_rejected_bid_earns_extra_llm_call(tmp_path):

@@ -203,8 +203,8 @@ def _load_llm_sidecar(checkpoint_path: Path) -> dict[str, Any]:
     path = _sidecar_path(checkpoint_path)
     if not path.exists():
         raise ValueError(
-            f"LLM sidecar missing: {path}; checkpoints with LLM buyers "
-            "cannot be resumed without it"
+            f"LLM sidecar missing: {path}; checkpoints cannot be resumed "
+            "without it"
         )
     with path.open(encoding="utf-8") as stream:
         sidecar = yaml.safe_load(stream) or {}

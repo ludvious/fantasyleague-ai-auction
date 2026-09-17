@@ -224,7 +224,7 @@ class CoachAgent:
                             player.id, "bid", iteration, {"amount": amount}
                         )
                         return amount
-                elif name == "search_info" and name in self.tools:
+                elif name == "search_info" and name in self.tools and not searched:
                     result = self.client.search_info(
                         str(args.get("query", "")), self._search_count(args)
                     )
