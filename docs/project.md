@@ -23,7 +23,9 @@ The auction MVP is implemented and P1–P4 are complete:
   back as that tool call's result and earns an extra LLM call, up to
   `max_bid_retries` (`search_info` is hidden once it has been used, since the
   retrieved info stays in the conversation); with retries exhausted the
-  bidder passes (`0`);
+  bidder passes (`0`); transient chat timeouts are retried inside `LlmClient`
+  (up to `CHAT_MAX_ATTEMPTS` attempts with linear backoff) before the call
+  fails and the engine records a `BidIssue`;
 - CoachAgent profiles are auto-discovered from `coachAgent_*.md` files in
   `paths.coaches` (front-matter for technical fields, markdown body for the
   strategy); the shared prompt lives in `agents/prompts/system_prompt.md` with
@@ -120,7 +122,7 @@ reads these fields:
 | `llm` | `api_key_env` | yes* | environment variable name holding the API key; the key itself never appears in config files |
 | `llm` | `model` | yes* | model name passed to the chat API |
 | `llm` | `temperature` | no | number in `[0, 2]`, default `0.7` |
-| `llm` | `timeout_seconds` | no | int > 0, default `30` |
+| `llm` | `timeout_seconds` | no | int > 0, default `60` |
 | `llm` | `max_tool_iterations` | no | int >= 1, default `3`; inherited by buyers that do not set it |
 | `llm` | `max_bid_retries` | no | int >= 0, default `2`; inherited by buyers that do not set it |
 | `llm` | `search` | no | mapping with `provider` in {responses, anthropic, brave}; `model` required for responses/anthropic; `base_url` optional (responses inherits `llm.base_url`, other providers have defaults), `api_key_env` optional (inherits `llm`), `max_output_tokens` (default 400), `headers`; literal `api_key` rejected. Legacy `brave` block still accepted when `search` is absent (mutually exclusive together); when both are absent, live search is disabled (`search non disponibile`) |

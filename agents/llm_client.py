@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import httpx
+from loguru import logger
 
 
 MOCK_BRAVE_KEY = "INSERISCI_LA_TUA_BRAVE_API_KEY"
 
 USER_AGENT = "fantasyleague-auction/0.1"
+
+CHAT_MAX_ATTEMPTS = 3
+CHAT_RETRY_BACKOFF_SECONDS = 1.5
 
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "search_info": {
@@ -99,6 +104,40 @@ class LlmClient:
         self._api_key = api_key
         self._search = search
 
+    def _post_chat(
+        self,
+        model: str,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+    ) -> httpx.Response:
+        """POST a chat completion, retrying transient timeouts with backoff."""
+        for attempt in range(1, CHAT_MAX_ATTEMPTS + 1):
+            try:
+                response = self._http.post(
+                    "/chat/completions",
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "tools": tools,
+                        "temperature": temperature,
+                    },
+                )
+                response.raise_for_status()
+                return response
+            except httpx.TimeoutException as exc:
+                if attempt == CHAT_MAX_ATTEMPTS:
+                    raise
+                logger.warning(
+                    "Chat timeout (tentativo {}/{}): {}; riprovo",
+                    attempt,
+                    CHAT_MAX_ATTEMPTS,
+                    exc,
+                )
+                time.sleep(CHAT_RETRY_BACKOFF_SECONDS * attempt)
+        raise RuntimeError("unreachable: chat retry loop exhausted")
+
     def chat(
         self,
         messages: list[dict],
@@ -106,17 +145,7 @@ class LlmClient:
         model: str,
         temperature: float,
     ) -> dict:
-        response = self._http.post(
-            "/chat/completions",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
-                "model": model,
-                "messages": messages,
-                "tools": tools,
-                "temperature": temperature,
-            },
-        )
-        response.raise_for_status()
+        response = self._post_chat(model, messages, tools, temperature)
         payload = response.json()
         try:
             choice = payload["choices"][0]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Callable, Sequence
 
 from loguru import logger
 
@@ -249,6 +249,14 @@ class AuctionEngine:
             raise ValueError(f"Player {player.id} is not available")
 
         self.state.auction_count += 1
+        logger.info(
+            "Asta #{}: {} ({}, {}, quotazione {})",
+            self.state.auction_count,
+            player.name,
+            player.position.value,
+            player.team,
+            player.list_price,
+        )
         bids, active_ids = self._collect_bids(player)
         max_bid = max(bids.values(), default=0)
         positive_winners = [buyer_id for buyer_id, bid in bids.items() if bid == max_bid and bid > 0]
@@ -369,8 +377,15 @@ class AuctionEngine:
         )
         return AuctionCheckpoint(**fields)
 
-    def run(self) -> SimulationReport:
-        """Run until all squads are complete or the pool is exhausted."""
+    def run(
+        self,
+        after_lot: Callable[[AuctionResult], None] | None = None,
+    ) -> SimulationReport:
+        """Run until all squads are complete or the pool is exhausted.
+
+        `after_lot`, when given, is called with each resolved lot right after
+        it is auctioned (the CLI uses it for step-by-step mode).
+        """
         run_started_at = datetime.now(timezone.utc)
         if self.state.started_at is None:
             self.state.started_at = run_started_at
@@ -394,4 +409,6 @@ class AuctionEngine:
             if player is None:
                 self._finish_run(datetime.now(timezone.utc))
                 raise AuctionIncompleteError(incomplete)
-            self.auction_player(player)
+            result = self.auction_player(player)
+            if after_lot is not None:
+                after_lot(result)

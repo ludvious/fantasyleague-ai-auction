@@ -18,7 +18,7 @@ from agents.llm_client import LlmClient
 from agents.trace import TraceLogger
 from benchmark.runner import run_benchmark
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
-from core.models import BidderSnapshot, SimulationSnapshot
+from core.models import AuctionResult, BidderSnapshot, SimulationSnapshot
 from utils.config_loader import (
     as_file_path,
     load_config,
@@ -107,7 +107,7 @@ def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
         base_url=str(llm_config["base_url"]),
         api_key=api_key,
         search=search,
-        timeout_seconds=int(llm_config.get("timeout_seconds", 30)),
+        timeout_seconds=int(llm_config.get("timeout_seconds", 60)),
         extra_headers=headers,
     )
 
@@ -228,6 +228,21 @@ def _load_llm_sidecar(checkpoint_path: Path) -> dict[str, Any]:
     return sidecar
 
 
+def _make_step_pause(engine: AuctionEngine):
+    """Return the after-lot callback used by the `--step` mode."""
+
+    def pause(_result: AuctionResult) -> None:
+        squads = " | ".join(
+            f"{squad.name}: {len(squad.players)}/25, "
+            f"{squad.budget_remaining} credits"
+            for squad in engine.state.squads.values()
+        )
+        print(f"[step] {squads}")
+        input("Press Enter to auction the next player (Ctrl+C to stop)... ")
+
+    return pause
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a non-interactive fantasy auction")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
@@ -236,6 +251,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--seed", type=int)
+    parser.add_argument(
+        "--step",
+        action="store_true",
+        help="Auction one player at a time, pausing for Enter between lots",
+    )
     subparsers = parser.add_subparsers(dest="command")
     benchmark_parser = subparsers.add_parser(
         "benchmark",
@@ -345,7 +365,9 @@ def main(argv: list[str] | None = None) -> int:
             ]
             engine = AuctionEngine(players, bidders, budget=budget, seed=seed)
 
-        report = engine.run()
+        report = engine.run(
+            after_lot=_make_step_pause(engine) if args.step else None
+        )
         saved = store.save_document(report, output_path)
         logger.success("Report saved to {}", saved)
         return 0

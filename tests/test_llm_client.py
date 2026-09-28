@@ -3,7 +3,12 @@ import json
 import httpx
 import pytest
 
-from agents.llm_client import LlmClient, MOCK_BRAVE_KEY, _format_search_result
+from agents.llm_client import (
+    CHAT_MAX_ATTEMPTS,
+    LlmClient,
+    MOCK_BRAVE_KEY,
+    _format_search_result,
+)
 
 
 def make_client(handler, search=None):
@@ -66,6 +71,45 @@ def test_chat_raises_on_http_error():
 
     with pytest.raises(httpx.HTTPStatusError):
         make_client(handler).chat([], [], "gpt-4o-mini", 0.7)
+
+
+def ok_chat_response():
+    return httpx.Response(200, json={
+        "choices": [{
+            "message": {"role": "assistant", "content": "ok", "tool_calls": []},
+            "finish_reason": "stop",
+        }],
+    })
+
+
+def test_chat_retries_read_timeout_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return ok_chat_response()
+
+    monkeypatch.setattr("agents.llm_client.time.sleep", lambda _seconds: None)
+    result = make_client(handler).chat([], [], "gpt-4o-mini", 0.7)
+
+    assert calls["n"] == 2
+    assert result["content"] == "ok"
+
+
+def test_chat_raises_after_exhausting_timeout_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    monkeypatch.setattr("agents.llm_client.time.sleep", lambda _seconds: None)
+    with pytest.raises(httpx.ReadTimeout):
+        make_client(handler).chat([], [], "gpt-4o-mini", 0.7)
+
+    assert calls["n"] == CHAT_MAX_ATTEMPTS
 
 
 def test_chat_raises_on_malformed_tool_arguments():

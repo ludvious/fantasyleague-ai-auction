@@ -1,6 +1,7 @@
 # fantasyleague-ai-auction
 
-A non-interactive CLI for simulating an Italian fantasy-football auction.
+A CLI for simulating an Italian fantasy-football auction. Runs are unattended
+by default, with an optional interactive step-by-step mode.
 
 
 ## Development disclosure
@@ -61,6 +62,7 @@ auction requires the API key named by `llm.api_key_env` (see
 --checkpoint PATH   Override the checkpoint path or directory
 --resume PATH       Resume from a pool-exhaustion checkpoint
 --seed INTEGER      Override the configured random seed
+--step              Auction one player at a time, pausing for Enter between lots
 
 benchmark           Run multiple auctions and aggregate per-agent metrics
   --config PATH     YAML configuration file (default: configs/default.yaml)
@@ -79,6 +81,36 @@ venv/bin/python main.py \
   --checkpoint /tmp/auction-checkpoint.json \
   --seed 42
 ```
+
+## Step-by-step simulation
+
+By default the CLI runs the whole auction unattended. Add `--step` to auction
+one player at a time and inspect the state between lots:
+
+```bash
+venv/bin/python main.py --config configs/default.yaml --step
+```
+
+After every resolved lot the engine logs the lot and the CLI prints a per-squad
+status line, then waits for Enter before moving on:
+
+```text
+Asta #12: Lautaro Martínez (A, Inter, quotazione 30)
+Sold Lautaro Martínez to Squadra Alfa for 28 credits
+[step] Squadra Alfa: 7/25, 350 credits | Squadra Beta: 9/25, 210 credits
+Press Enter to auction the next player (Ctrl+C to stop)...
+```
+
+Step mode uses the same engine, configuration, traces, and checkpointing as a
+normal run, so it combines with `--players`, `--output`, `--checkpoint`, and
+`--resume`:
+
+```bash
+venv/bin/python main.py --step --resume /path/to/auction-checkpoint.json
+```
+
+Press Ctrl+C to stop early. On pool exhaustion the run still writes the
+resumable checkpoint and its `checkpoint.llm.yaml` sidecar.
 
 ## Resume from a checkpoint
 
@@ -129,7 +161,7 @@ llm:
   api_key_env: "OPENCODE_API_KEY"
   model: "deepseek-v4-flash"
   temperature: 0.7
-  timeout_seconds: 30
+  timeout_seconds: 60
   # Header applicati a tutte le richieste. x-opencode-session è richiesto
   # da OpenCode Go; se omesso viene generato un default per-run.
   # headers:

@@ -21,7 +21,7 @@ llm:
   api_key_env: "OPENCODE_API_KEY"
   model: "deepseek-v4-flash"
   temperature: 0.7
-  timeout_seconds: 30
+  timeout_seconds: 60
   # Limite di chiamate LLM per giocatore (default 3) e chiamate extra
   # guadagnate da un submit_bid rifiutato (default 2). Un coach può
   # sovrascriverli nel front-matter del suo coachAgent_*.md.

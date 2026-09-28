@@ -307,6 +307,20 @@ def test_pool_exhaustion_reports_missing_roles():
     assert engine.state.players[0].status is PlayerStatus.SOLD
 
 
+def test_run_invokes_after_lot_for_each_auctioned_player():
+    players = [make_player("a", "A"), make_player("b", "A")]
+    engine = AuctionEngine(
+        players, [FixedBidder("b1", "One", 1)], budget=500, seed=1
+    )
+    lots = []
+
+    with pytest.raises(AuctionIncompleteError):
+        engine.run(after_lot=lots.append)
+
+    assert len(lots) == 2
+    assert {result.player.id for result in lots} == {"a", "b"}
+
+
 def test_auction_counters_are_persisted_in_state():
     player = make_player("a", "A")
     engine = AuctionEngine(
