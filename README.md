@@ -141,10 +141,10 @@ report destination and defaults to `data/results/report.json`; if the resumed
 round is incomplete, `--checkpoint` selects the replacement checkpoint
 (destination), and without it the input checkpoint is replaced.
 
-The process returns `0` after a complete auction and `1` for pool exhaustion,
+The process returns `0` after a complete auction, `1` for pool exhaustion,
 configuration errors, invalid checkpoint data, file errors, or unexpected
-auction errors. Only pool exhaustion writes a resumable checkpoint; other
-failures do not write one.
+auction errors, and `130` when interrupted with Ctrl+C. Only pool exhaustion
+writes a resumable checkpoint; other exits do not write one.
 
 ## CoachAgent (LLM bidders)
 

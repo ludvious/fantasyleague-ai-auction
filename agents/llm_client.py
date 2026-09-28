@@ -168,8 +168,16 @@ class LlmClient:
                 }
             )
         usage = payload.get("usage") or {}
+        reasoning = (
+            message.get("reasoning_content")
+            or message.get("reasoning")
+            or ""
+        )
+        if not isinstance(reasoning, str):
+            reasoning = ""
         return {
             "content": message.get("content") or "",
+            "reasoning": reasoning,
             "tool_calls": tool_calls,
             "finish_reason": choice.get("finish_reason") or "",
             "usage": {

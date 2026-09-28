@@ -43,6 +43,7 @@ def test_chat_posts_expected_payload_and_parses_tool_calls():
                 "message": {
                     "role": "assistant",
                     "content": "valuto il giocatore",
+                    "reasoning_content": "sto ragionando sul prezzo",
                     "tool_calls": [{
                         "id": "call_1",
                         "type": "function",
@@ -58,6 +59,7 @@ def test_chat_posts_expected_payload_and_parses_tool_calls():
     result = client.chat([{"role": "user", "content": "ciao"}], [], "gpt-4o-mini", 0.7)
 
     assert result["content"] == "valuto il giocatore"
+    assert result["reasoning"] == "sto ragionando sul prezzo"
     assert result["finish_reason"] == "tool_calls"
     assert result["tool_calls"] == [
         {"id": "call_1", "name": "submit_bid", "args": {"amount": 12}}

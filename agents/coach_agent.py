@@ -182,15 +182,27 @@ class CoachAgent:
                 )
                 raise
             self.tracer.event(player.id, "usage", iteration, response["usage"])
-            if response["content"]:
+            response_reasoning = response.get("reasoning") or ""
+            response_content = response.get("content") or ""
+            if response_reasoning:
                 self.tracer.event(
-                    player.id, "thinking", iteration, {"text": response["content"]}
+                    player.id, "thinking", iteration, {"text": response_reasoning}
+                )
+                logger.info(
+                    "Coach {} su {} (reasoning): {}",
+                    self.buyer_id,
+                    player.name,
+                    response_reasoning.strip(),
+                )
+            if response_content:
+                self.tracer.event(
+                    player.id, "thinking", iteration, {"text": response_content}
                 )
                 logger.info(
                     "Coach {} su {}: {}",
                     self.buyer_id,
                     player.name,
-                    response["content"].strip(),
+                    response_content.strip(),
                 )
             if not response["tool_calls"]:
                 self.tracer.event(
@@ -199,6 +211,7 @@ class CoachAgent:
                     iteration,
                     {"reason": "stop_without_bid"},
                 )
+                logger.info("Coach {} passa su {}", self.buyer_id, player.name)
                 return 0
             tool_results: list[tuple[str, str, str]] = []
             for call in response["tool_calls"]:
@@ -223,6 +236,12 @@ class CoachAgent:
                         self.tracer.event(
                             player.id, "bid", iteration, {"amount": amount}
                         )
+                        logger.info(
+                            "Coach {} offre {} crediti per {}",
+                            self.buyer_id,
+                            amount,
+                            player.name,
+                        )
                         return amount
                 elif name == "search_info" and name in self.tools and not searched:
                     result = self.client.search_info(
@@ -238,7 +257,7 @@ class CoachAgent:
             messages.append(
                 {
                     "role": "assistant",
-                    "content": response["content"] or None,
+                    "content": response_content or None,
                     "tool_calls": [
                         {
                             "id": call["id"],
@@ -261,5 +280,10 @@ class CoachAgent:
             "no_bid",
             iteration,
             {"reason": "iteration_cap"},
+        )
+        logger.info(
+            "Coach {} passa su {} (budget chiamate esaurito)",
+            self.buyer_id,
+            player.name,
         )
         return 0

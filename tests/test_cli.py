@@ -132,6 +132,21 @@ def test_cli_step_mode_pauses_before_each_lot(monkeypatch, tmp_path):
     assert report.exists()
 
 
+def test_cli_step_mode_interrupt_exits_cleanly(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    write_llm_run_config(config, workbook, logs=tmp_path / "logs")
+
+    def interrupt(prompt=""):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+
+    assert main(["--config", str(config), "--step"]) == 130
+
+
 def test_cli_saves_checkpoint_and_returns_error_when_pool_is_too_small(monkeypatch, tmp_path):
     use_fake_llm(monkeypatch)
     workbook = tmp_path / "players.xlsx"

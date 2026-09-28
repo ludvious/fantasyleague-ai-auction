@@ -3,6 +3,7 @@ import json
 import pytest
 from loguru import logger
 
+from agents import coach_agent as coach_module
 from agents.coach_agent import CoachAgent
 from agents.trace import TraceLogger
 from core.models import (
@@ -37,9 +38,10 @@ def tool_call(name, args, call_id="call_1"):
     return {"id": call_id, "name": name, "args": args}
 
 
-def chat_response(*calls, content="", finish_reason="tool_calls"):
+def chat_response(*calls, content="", finish_reason="tool_calls", reasoning=""):
     return {
         "content": content,
+        "reasoning": reasoning,
         "tool_calls": list(calls),
         "finish_reason": finish_reason,
         "usage": {"prompt_tokens": 10, "completion_tokens": 5},
@@ -182,6 +184,61 @@ def test_iteration_cap_returns_zero(tmp_path):
     assert len(client.messages_seen) == 2
     last = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
     assert last["content"] == {"reason": "iteration_cap"}
+
+
+def _capture_info(monkeypatch):
+    messages: list[str] = []
+
+    def record(message, *args, **kwargs):
+        messages.append(message.format(*args) if args else message)
+
+    monkeypatch.setattr(coach_module.logger, "info", record)
+    return messages
+
+
+def test_reasoning_is_traced_and_logged_even_without_content(tmp_path, monkeypatch):
+    logs = _capture_info(monkeypatch)
+    client = FakeClient([
+        chat_response(
+            tool_call("submit_bid", {"amount": 10}), reasoning="valuto bene"
+        ),
+    ])
+    manager, trace_path = make_manager(tmp_path, client)
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(
+        event["phase"] == "thinking"
+        and event["content"] == {"text": "valuto bene"}
+        for event in events
+    )
+    assert any("valuto bene" in message for message in logs)
+
+
+def test_final_bid_is_logged(tmp_path, monkeypatch):
+    logs = _capture_info(monkeypatch)
+    client = FakeClient([chat_response(tool_call("submit_bid", {"amount": 10}))])
+    manager, _ = make_manager(tmp_path, client)
+
+    assert manager.bid(make_player(), make_squad()) == 10
+
+    assert any("offre 10 crediti" in message for message in logs)
+
+
+def test_pass_is_logged(tmp_path, monkeypatch):
+    logs = _capture_info(monkeypatch)
+    client = FakeClient([
+        chat_response(content="non posso offrire", finish_reason="stop")
+    ])
+    manager, _ = make_manager(tmp_path, client)
+
+    assert manager.bid(make_player(), make_squad()) == 0
+
+    assert any("passa su" in message for message in logs)
 
 
 def test_repeated_search_is_not_executed(tmp_path):

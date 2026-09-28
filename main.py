@@ -401,6 +401,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         logger.error("{}; checkpoint saved to {}", exc, saved)
         return 1
+    except KeyboardInterrupt:
+        logger.warning("Auction interrupted (Ctrl+C)")
+        return 130
     except Exception as exc:
         logger.error("Auction failed: {}", exc)
         return 1
