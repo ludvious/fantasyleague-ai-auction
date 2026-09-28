@@ -2,7 +2,6 @@ import time
 
 import pytest
 
-from agents.buyer_agent import DeterministicBidder
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
 from core.models import (
     AuctionState,
@@ -247,8 +246,8 @@ def test_exact_remaining_budget_can_complete_the_roster():
 def test_tied_highest_bid_makes_player_unsold_and_removes_it():
     players = [make_player("a", "A")]
     bidders = [
-        DeterministicBidder("b1", "One", priority=1),
-        DeterministicBidder("b2", "Two", priority=1),
+        FixedBidder("b1", "One", 1),
+        FixedBidder("b2", "Two", 1),
     ]
     engine = AuctionEngine(players, bidders, budget=25, seed=1)
 
@@ -279,8 +278,8 @@ def test_all_zero_bids_make_player_unsold():
 def test_unique_positive_bid_records_one_purchase():
     players = [make_player("a", "A")]
     bidders = [
-        DeterministicBidder("b1", "One", priority=1),
-        DeterministicBidder("b2", "Two", priority=0),
+        FixedBidder("b1", "One", 2),
+        FixedBidder("b2", "Two", 1),
     ]
     engine = AuctionEngine(players, bidders, budget=30, seed=1)
 
@@ -296,8 +295,8 @@ def test_unique_positive_bid_records_one_purchase():
 def test_pool_exhaustion_reports_missing_roles():
     players = [make_player("a", "A")]
     bidders = [
-        DeterministicBidder("b1", "One", priority=1),
-        DeterministicBidder("b2", "Two", priority=0),
+        FixedBidder("b1", "One", 2),
+        FixedBidder("b2", "Two", 1),
     ]
     engine = AuctionEngine(players, bidders, budget=500, seed=1)
 
@@ -324,8 +323,8 @@ def test_auction_counters_are_persisted_in_state():
 def test_complete_role_is_excluded_from_bidding():
     player = make_player("new", "P")
     bidders = [
-        DeterministicBidder("b1", "One", priority=1),
-        DeterministicBidder("b2", "Two", priority=0),
+        FixedBidder("b1", "One", 2),
+        FixedBidder("b2", "Two", 1),
     ]
     engine = AuctionEngine([player], bidders, budget=30, seed=1)
     squad = engine.state.squads["b1"]
@@ -392,7 +391,7 @@ def test_parallel_collect_bids_preserves_issue_order():
 def test_parallel_collect_bids_excludes_ineligible_bidders():
     player = make_player("p", "P")
     bidders = [
-        DeterministicBidder("full", "Full", priority=1),
+        FixedBidder("full", "Full", 2),
         FixedBidder("free", "Free", 1),
     ]
     engine = AuctionEngine([player], bidders, budget=30, seed=1)

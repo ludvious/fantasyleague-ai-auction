@@ -67,7 +67,6 @@ def run_benchmark(
             [player.model_copy(deep=True) for player in players],
             build_bidders(
                 buyer_configs,
-                seed_i,
                 llm_config=llm_config,
                 run_dir=run_dir / "traces",
                 budget=budget,

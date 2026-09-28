@@ -49,9 +49,9 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 
 
 SEARCH_PROMPT = (
-    "Cerca info recenti su: {query}. Riassumi brevemente in italiano le "
+    "Cerca info recenti su: {query}. Riassumi brevemente le "
     "informazioni utili per un'asta di fantacalcio (infortuni, forma, "
-    "titolarità, ruolo, competenze, mercato)."
+    "titolarità, ruolo, squadra, competenze, mercato)."
 )
 
 

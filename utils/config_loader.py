@@ -15,6 +15,13 @@ SPENDING_ROLES = {position.value for position in Position}
 SPENDING_TOLERANCE = 0.01
 
 
+def _validate_optional_int(value: Any, minimum: int, message: str) -> None:
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, int) or value < minimum
+    ):
+        raise ValueError(message)
+
+
 def validate_llm_buyer(llm: Any, index: int | str) -> None:
     if not isinstance(llm, dict):
         raise ValueError(f"'buyers[{index}].llm' must be a mapping")
@@ -33,15 +40,16 @@ def validate_llm_buyer(llm: Any, index: int | str) -> None:
         raise ValueError(
             f"'buyers[{index}].llm.temperature' must be a number in [0, 2]"
         )
-    max_tool_iterations = llm.get("max_tool_iterations")
-    if max_tool_iterations is not None and (
-        isinstance(max_tool_iterations, bool)
-        or not isinstance(max_tool_iterations, int)
-        or max_tool_iterations < 1
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1"
-        )
+    _validate_optional_int(
+        llm.get("max_tool_iterations"),
+        1,
+        f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1",
+    )
+    _validate_optional_int(
+        llm.get("max_bid_retries"),
+        0,
+        f"'buyers[{index}].llm.max_bid_retries' must be an int >= 0",
+    )
     tools = llm.get("tools")
     if tools is not None and (
         not isinstance(tools, list)
@@ -158,6 +166,16 @@ def validate_global_llm(llm: Any) -> None:
         or timeout_seconds < 1
     ):
         raise ValueError("'llm.timeout_seconds' must be an int > 0")
+    _validate_optional_int(
+        llm.get("max_tool_iterations"),
+        1,
+        "'llm.max_tool_iterations' must be an int >= 1",
+    )
+    _validate_optional_int(
+        llm.get("max_bid_retries"),
+        0,
+        "'llm.max_bid_retries' must be an int >= 0",
+    )
     search = llm.get("search")
     brave = llm.get("brave")
     if search is not None and brave is not None:
@@ -217,23 +235,8 @@ def _validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"'buyers[{index}].id' must be a non-empty string")
         if not str(buyer.get("name", "")).strip():
             raise ValueError(f"'buyers[{index}].name' must be a non-empty string")
-        strategy = str(buyer.get("strategy", "deterministic")).lower()
-        if strategy not in ("deterministic", "random", "llm"):
-            raise ValueError(
-                f"'buyers[{index}].strategy' must be 'deterministic', 'random' or 'llm'"
-            )
-        if strategy == "llm":
-            validate_llm_buyer(buyer.get("llm"), index)
-        priority = buyer.get("priority")
-        if priority is not None and (
-            isinstance(priority, bool) or not isinstance(priority, int)
-        ):
-            raise ValueError(f"'buyers[{index}].priority' must be an int")
-    if coaches or any(
-        str(buyer.get("strategy", "deterministic")).lower() == "llm"
-        for buyer in buyer_list
-    ):
-        validate_global_llm(config.get("llm"))
+        validate_llm_buyer(buyer.get("llm") or {}, index)
+    validate_global_llm(config.get("llm"))
 
 
 def load_config(path: Path) -> dict[str, Any]:

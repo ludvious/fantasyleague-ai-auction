@@ -16,7 +16,7 @@ def test_checkpoint_contains_autonomous_configuration():
 
     assert checkpoint.document_type == "auction_checkpoint"
     assert checkpoint.simulation.budget == 500
-    assert checkpoint.buyers[0].strategy == "deterministic"
+    assert checkpoint.buyers[0].strategy == "llm"
     assert checkpoint.error_code == "pool_exhausted"
 
 

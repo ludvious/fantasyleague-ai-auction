@@ -1,4 +1,4 @@
-"""Domain models and roster rules for the deterministic auction MVP."""
+"""Domain models and roster rules for the auction MVP."""
 
 from __future__ import annotations
 

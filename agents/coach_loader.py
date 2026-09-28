@@ -19,6 +19,7 @@ FRONT_MATTER_FIELDS = (
     "personality",
     "temperature",
     "max_tool_iterations",
+    "max_bid_retries",
     "tools",
     "spending_profile",
     "target_players",
@@ -79,8 +80,6 @@ def load_coaches(directory: str | Path) -> list[dict[str, Any]]:
             {
                 "id": buyer_id,
                 "name": name,
-                "strategy": "llm",
-                "priority": len(coaches),
                 "llm": llm,
                 "profile": profile,
             }
@@ -100,6 +99,4 @@ def load_buyer_configs(config: dict[str, Any]) -> list[dict[str, Any]]:
         raise ValueError(
             f"Duplicate buyer ids between config and coaches: {duplicates}"
         )
-    for index, coach in enumerate(coaches):
-        coach["priority"] = len(buyers) + index
     return buyers + coaches

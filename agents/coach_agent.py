@@ -11,6 +11,9 @@ from agents.trace import TraceLogger
 from core.models import AuctionResult, BidValidationError, Player, Squad
 
 
+RETRYABLE_BID_CODES = frozenset({"invalid_type", "negative", "above_maximum"})
+
+
 class CoachAgent:
     """Bidder driven by an OpenAI-compatible function-calling loop.
 
@@ -30,6 +33,7 @@ class CoachAgent:
         temperature: float,
         system_prompt: str,
         max_tool_iterations: int = 3,
+        max_bid_retries: int = 2,
         tools: tuple[str, ...] = DEFAULT_TOOLS,
     ):
         if not buyer_id or not name:
@@ -44,6 +48,7 @@ class CoachAgent:
         self.temperature = temperature
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
+        self.max_bid_retries = max_bid_retries
         self.tools = tools
 
     def _context(self, player: Player, squad: Squad) -> dict:
@@ -148,10 +153,19 @@ class CoachAgent:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": self._user_message(context)},
         ]
-        tool_schemas = [
-            TOOL_SCHEMAS[name] for name in self.tools if name in TOOL_SCHEMAS
-        ]
-        for iteration in range(1, self.max_tool_iterations + 1):
+        calls_left = self.max_tool_iterations
+        retries_left = self.max_bid_retries
+        searched = False
+        iteration = 0
+        while calls_left > 0:
+            iteration += 1
+            calls_left -= 1
+            tool_schemas = [
+                TOOL_SCHEMAS[name]
+                for name in self.tools
+                if name in TOOL_SCHEMAS
+                and not (searched and name == "search_info")
+            ]
             self.tracer.event(
                 player.id, "llm_call", iteration, {"model": self.model}
             )
@@ -199,15 +213,22 @@ class CoachAgent:
                         squad.validate_bid(player, amount)
                     except BidValidationError as exc:
                         result = f"offerta rifiutata: {exc}"
+                        if (
+                            retries_left > 0
+                            and exc.code in RETRYABLE_BID_CODES
+                        ):
+                            retries_left -= 1
+                            calls_left += 1
                     else:
                         self.tracer.event(
                             player.id, "bid", iteration, {"amount": amount}
                         )
                         return amount
-                elif name == "search_info" and name in self.tools:
+                elif name == "search_info" and name in self.tools and not searched:
                     result = self.client.search_info(
                         str(args.get("query", "")), self._search_count(args)
                     )
+                    searched = True
                 else:
                     result = f"strumento '{name}' non disponibile"
                 self.tracer.event(
@@ -238,7 +259,7 @@ class CoachAgent:
         self.tracer.event(
             player.id,
             "no_bid",
-            self.max_tool_iterations,
+            iteration,
             {"reason": "iteration_cap"},
         )
         return 0
