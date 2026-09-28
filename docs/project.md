@@ -121,6 +121,8 @@ reads these fields:
 | `llm` | `model` | yes* | model name passed to the chat API |
 | `llm` | `temperature` | no | number in `[0, 2]`, default `0.7` |
 | `llm` | `timeout_seconds` | no | int > 0, default `30` |
+| `llm` | `max_tool_iterations` | no | int >= 1, default `3`; inherited by buyers that do not set it |
+| `llm` | `max_bid_retries` | no | int >= 0, default `2`; inherited by buyers that do not set it |
 | `llm` | `search` | no | mapping with `provider` in {responses, anthropic, brave}; `model` required for responses/anthropic; `base_url` optional (responses inherits `llm.base_url`, other providers have defaults), `api_key_env` optional (inherits `llm`), `max_output_tokens` (default 400), `headers`; literal `api_key` rejected. Legacy `brave` block still accepted when `search` is absent (mutually exclusive together); when both are absent, live search is disabled (`search non disponibile`) |
 | `llm` | `headers` | no | mapping of extra headers applied to every request; `x-opencode-session` gets a per-run default when omitted |
 | `buyers[].llm` | `model`/`role`/`personality`/`system_prompt` | no | non-empty strings; per-buyer `model` overrides the global one |

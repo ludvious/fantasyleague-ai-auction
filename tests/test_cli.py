@@ -505,6 +505,36 @@ def test_cli_rejects_non_int_budget(tmp_path, monkeypatch):
     assert any("'simulation.budget' must be an int >= 25" in error for error in errors)
 
 
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        (
+            {"max_tool_iterations": 0},
+            "'llm.max_tool_iterations' must be an int >= 1",
+        ),
+        (
+            {"max_bid_retries": -1},
+            "'llm.max_bid_retries' must be an int >= 0",
+        ),
+        (
+            {"max_bid_retries": True},
+            "'llm.max_bid_retries' must be an int >= 0",
+        ),
+    ],
+)
+def test_cli_rejects_invalid_global_call_limits(
+    tmp_path, monkeypatch, override, message
+):
+    config = tmp_path / "config.yaml"
+    data = base_llm_config(tmp_path / "players.xlsx")
+    data["llm"].update(override)
+    write_raw_config(config, data)
+    errors = capture_log_errors(monkeypatch)
+
+    assert main(["--config", str(config)]) == 1
+    assert any(message in error for error in errors)
+
+
 def test_cli_rejects_buyer_without_name(tmp_path, monkeypatch):
     config = tmp_path / "config.yaml"
     write_raw_config(

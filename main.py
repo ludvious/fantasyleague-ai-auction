@@ -123,7 +123,7 @@ def _build_bidders(
     if run_dir is None:
         raise ValueError("A trace run_dir is required for LLM bidders")
 
-    # Constructed once and shared: httpx clients are thread-safe.
+    # One shared client for all LLM bidders.
     llm_client = _make_llm_client(llm_config or {})
     bidders = []
     for config in configs:

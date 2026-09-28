@@ -15,6 +15,13 @@ SPENDING_ROLES = {position.value for position in Position}
 SPENDING_TOLERANCE = 0.01
 
 
+def _validate_optional_int(value: Any, minimum: int, message: str) -> None:
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, int) or value < minimum
+    ):
+        raise ValueError(message)
+
+
 def validate_llm_buyer(llm: Any, index: int | str) -> None:
     if not isinstance(llm, dict):
         raise ValueError(f"'buyers[{index}].llm' must be a mapping")
@@ -33,24 +40,16 @@ def validate_llm_buyer(llm: Any, index: int | str) -> None:
         raise ValueError(
             f"'buyers[{index}].llm.temperature' must be a number in [0, 2]"
         )
-    max_tool_iterations = llm.get("max_tool_iterations")
-    if max_tool_iterations is not None and (
-        isinstance(max_tool_iterations, bool)
-        or not isinstance(max_tool_iterations, int)
-        or max_tool_iterations < 1
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1"
-        )
-    max_bid_retries = llm.get("max_bid_retries")
-    if max_bid_retries is not None and (
-        isinstance(max_bid_retries, bool)
-        or not isinstance(max_bid_retries, int)
-        or max_bid_retries < 0
-    ):
-        raise ValueError(
-            f"'buyers[{index}].llm.max_bid_retries' must be an int >= 0"
-        )
+    _validate_optional_int(
+        llm.get("max_tool_iterations"),
+        1,
+        f"'buyers[{index}].llm.max_tool_iterations' must be an int >= 1",
+    )
+    _validate_optional_int(
+        llm.get("max_bid_retries"),
+        0,
+        f"'buyers[{index}].llm.max_bid_retries' must be an int >= 0",
+    )
     tools = llm.get("tools")
     if tools is not None and (
         not isinstance(tools, list)
@@ -167,6 +166,16 @@ def validate_global_llm(llm: Any) -> None:
         or timeout_seconds < 1
     ):
         raise ValueError("'llm.timeout_seconds' must be an int > 0")
+    _validate_optional_int(
+        llm.get("max_tool_iterations"),
+        1,
+        "'llm.max_tool_iterations' must be an int >= 1",
+    )
+    _validate_optional_int(
+        llm.get("max_bid_retries"),
+        0,
+        "'llm.max_bid_retries' must be an int >= 0",
+    )
     search = llm.get("search")
     brave = llm.get("brave")
     if search is not None and brave is not None:
