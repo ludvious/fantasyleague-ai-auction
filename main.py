@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -331,7 +332,12 @@ def main(argv: list[str] | None = None) -> int:
             )
 
             budget = int(simulation.get("budget", 500))
-            seed = args.seed if args.seed is not None else simulation["seed"]
+            seed = args.seed if args.seed is not None else simulation.get("seed")
+            if seed is None:
+                seed = secrets.randbelow(2**31)
+                logger.info(
+                    "Seed generato: {} (riproduci con --seed {})", seed, seed
+                )
             players_path = args.players or Path(paths["players"])
             output_path = as_file_path(
                 args.output or paths.get("output"),

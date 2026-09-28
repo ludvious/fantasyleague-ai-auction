@@ -206,10 +206,8 @@ def _validate_config(config: dict[str, Any]) -> None:
     if not isinstance(simulation, dict):
         raise ValueError("'simulation' must be a mapping")
     seed = simulation.get("seed")
-    if seed is None:
-        raise ValueError("'simulation.seed' is required")
-    if isinstance(seed, bool) or not isinstance(seed, int):
-        raise ValueError("'simulation.seed' must be an int")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("'simulation.seed' must be an int when set")
     budget = simulation.get("budget")
     if budget is not None and (
         isinstance(budget, bool) or not isinstance(budget, int) or budget < 25

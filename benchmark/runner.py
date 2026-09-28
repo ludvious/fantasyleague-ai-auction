@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -43,7 +44,14 @@ def run_benchmark(
         log_to_file=bool(logging_config.get("log_to_file", False)),
     )
     players = ExcelHandler(Path(paths["players"])).load_players()
-    base_seed = args.seed if args.seed is not None else int(simulation["seed"])
+    base_seed = args.seed if args.seed is not None else simulation.get("seed")
+    if base_seed is None:
+        base_seed = secrets.randbelow(2**31)
+        logger.info(
+            "Benchmark base seed: {} (riproduci con --seed {})",
+            base_seed,
+            base_seed,
+        )
     budget = int(simulation.get("budget", 500))
     buyer_configs = load_buyer_configs(config)
     llm_config = config.get("llm")

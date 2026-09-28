@@ -7,7 +7,7 @@
 
 simulation:
   budget: 500
-  seed: 42
+  # seed: 42   # opzionale: se assente ogni run usa un seed casuale (loggato)
 
 paths:
   players: "data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx"

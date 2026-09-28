@@ -43,7 +43,8 @@ The default configuration uses:
 
 - `data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx` as the player source;
 - a budget of 500 credits;
-- seed `42`;
+- a random player-selection seed per run (generated and logged; pass
+  `--seed N` or set `simulation.seed` to reproduce a run);
 - four CoachAgents discovered from `agents/coach/`;
 - `data/results/report.json` for successful reports;
 - `data/checkpoints/checkpoint.json` for pool-exhaustion checkpoints that can
@@ -61,7 +62,7 @@ auction requires the API key named by `llm.api_key_env` (see
 --output PATH       Override the report path or output directory
 --checkpoint PATH   Override the checkpoint path or directory
 --resume PATH       Resume from a pool-exhaustion checkpoint
---seed INTEGER      Override the configured random seed
+--seed INTEGER      Player-selection seed for a reproducible run (default: random, logged)
 --step              Auction one player at a time, pausing for Enter between lots
 
 benchmark           Run multiple auctions and aggregate per-agent metrics
@@ -248,7 +249,8 @@ venv/bin/python main.py benchmark \
   --output data/benchmarks/2026-08-18/
 ```
 
-Run `i` uses seed `seed + i` (0-based) and a fresh `AuctionEngine` with
+Run `i` uses seed `seed + i` (0-based), where `seed` comes from `--seed`, the
+config, or a generated/logged base seed, and a fresh `AuctionEngine` with
 deep-copied players. The output layout is:
 
 ```text

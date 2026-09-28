@@ -337,22 +337,30 @@ def test_cli_ignores_legacy_config_keys(monkeypatch, tmp_path):
     assert report.exists()
 
 
-def test_cli_requires_seed_in_config(tmp_path):
+def test_cli_generates_seed_when_absent(monkeypatch, tmp_path):
+    use_fake_llm(monkeypatch)
+    monkeypatch.setattr(cli_module.secrets, "randbelow", lambda _n: 12345)
+    messages: list[str] = []
+    monkeypatch.setattr(
+        cli_module.logger,
+        "info",
+        lambda message, *args, **kwargs: messages.append(
+            message.format(*args) if args else message
+        ),
+    )
     workbook = tmp_path / "players.xlsx"
     config = tmp_path / "config.yaml"
     report = tmp_path / "report.json"
     write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
-    write_raw_config(
-        config,
-        {
-            "simulation": {"budget": 500},
-            "paths": {"players": str(workbook)},
-            "buyers": [{"id": "b1", "name": "Alpha", "llm": {}}],
-        },
-    )
+    data = base_llm_config(workbook)
+    data["simulation"].pop("seed")
+    data["paths"]["logs"] = str(tmp_path / "logs")
+    write_raw_config(config, data)
 
-    assert main(["--config", str(config), "--output", str(report)]) == 1
-    assert not report.exists()
+    assert main(["--config", str(config), "--output", str(report)]) == 0
+
+    assert report.exists()
+    assert any("Seed generato: 12345" in message for message in messages)
 
 
 def test_cli_requires_players_path_in_config(tmp_path):
@@ -637,7 +645,7 @@ def test_default_config_satisfies_contract():
     )
 
     assert default["simulation"]["budget"] == 500
-    assert default["simulation"]["seed"] == 42
+    assert "seed" not in default["simulation"]
     assert default["paths"]["players"]
     assert default["paths"]["coaches"]
     assert default["llm"]["api_key_env"]

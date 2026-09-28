@@ -2,9 +2,10 @@
 
 A non-interactive CLI for simulating an Italian fantasy-football auction.
 The MVP is synchronous and reproducible through seeded `random.Random`
-instances for player selection; bidding is driven by LLM `CoachAgent`s.
-Auction rules live in the domain, while bidder strategies, Excel input, JSON
-persistence, and the CLI remain separate adapters.
+instances for player selection (when no seed is configured a random one is
+generated and logged); bidding is driven by LLM `CoachAgent`s. Auction rules
+live in the domain, while bidder strategies, Excel input, JSON persistence,
+and the CLI remain separate adapters.
 
 ## Current status
 
@@ -88,7 +89,7 @@ points at `agents/coach/coachAgent_*.md`):
 ```yaml
 simulation:
   budget: 500
-  seed: 42
+  # seed: 42   # optional; a random seed is generated and logged when absent
 
 paths:
   players: "data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx"
@@ -111,7 +112,7 @@ reads these fields:
 | Section | Field | Required | Notes |
 | --- | --- | --- | --- |
 | `simulation` | `budget` | no | int, default `500`, minimum 25 |
-| `simulation` | `seed` | yes | int, seeds `random.Random` |
+| `simulation` | `seed` | no | int, seeds `random.Random`; when absent a random seed is generated and logged (reproduce with `--seed N`) |
 | `paths` | `players` | yes | Excel workbook path |
 | `paths` | `coaches` | no | directory scanned for `coachAgent_*.md` coaches; only scanned when set |
 | `paths` | `output` | no | report path or directory |
@@ -231,7 +232,8 @@ new checkpoint.
 The `benchmark` subcommand writes `DIR/run_NNN/report.json`,
 `DIR/run_NNN/traces/<buyer_id>.jsonl`, `DIR/metrics.json` (run records plus
 aggregates), and `DIR/metrics.csv` (one row per buyer per run), and prints a
-console summary table. Run `i` uses seed `seed + i` (0-based) with a fresh
+console summary table. Run `i` uses seed `seed + i` (0-based), where `seed` is
+`--seed`, the config seed, or a generated/logged base seed, with a fresh
 engine and deep-copied players; pool exhaustion inside a run saves the partial
 report with `completed: false` and the benchmark continues.
 

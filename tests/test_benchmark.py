@@ -44,6 +44,31 @@ def test_benchmark_command_produces_layout_and_metrics(monkeypatch, tmp_path):
     assert len(csv_text.splitlines()) == 3  # header + 2 run rows
 
 
+def test_benchmark_generates_base_seed_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
+    monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
+    workbook = tmp_path / "players.xlsx"
+    config = tmp_path / "config.yaml"
+    write_workbook(workbook, {"P": 3, "D": 8, "C": 8, "A": 6})
+    data = base_llm_config(workbook)
+    data["simulation"].pop("seed")
+    write_raw_config(config, data)
+    root = tmp_path / "bench"
+
+    exit_code = main([
+        "benchmark",
+        "--config", str(config),
+        "--runs", "2",
+        "--output", str(root),
+    ])
+
+    assert exit_code == 0
+    metrics = json.loads((root / "metrics.json").read_text(encoding="utf-8"))
+    seeds = [run["seed"] for run in metrics["runs"]]
+    assert len(seeds) == 2
+    assert seeds[1] == seeds[0] + 1
+
+
 def test_benchmark_records_incomplete_runs(monkeypatch, tmp_path):
     monkeypatch.setenv("TEST_LLM_API_KEY", "dummy")
     monkeypatch.setattr(cli_module, "LlmClient", FakeLlmClient)
