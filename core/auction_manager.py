@@ -1,10 +1,10 @@
-"""Deterministic auction engine."""
+"""Auction engine: player selection, bid collection, and outcomes."""
 
 from __future__ import annotations
 
 import random
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Callable, Sequence
 
 from loguru import logger
 
@@ -96,12 +96,6 @@ class AuctionEngine:
         """Restore the next pool-exhaustion round from a validated checkpoint."""
         if not isinstance(checkpoint, AuctionCheckpoint):
             raise TypeError("checkpoint must be an AuctionCheckpoint")
-        if checkpoint.schema_version != 1:
-            raise ValueError("Unsupported checkpoint schema version")
-        if checkpoint.document_type != "auction_checkpoint":
-            raise ValueError("Document is not an auction checkpoint")
-        if checkpoint.error_code != "pool_exhausted":
-            raise ValueError("Checkpoint is not resumable: pool_exhausted required")
 
         unsold = [
             player for player in checkpoint.players
@@ -204,8 +198,9 @@ class AuctionEngine:
             issue.message,
         )
 
-    def _collect_bids(self, player: Player) -> dict[str, int]:
+    def _collect_bids(self, player: Player) -> tuple[dict[str, int], list[str]]:
         bids: dict[str, int] = {}
+        active: list[str] = []
         for bidder in self.bidders:
             squad = self.state.squads[bidder.buyer_id]
             eligible = not squad.is_complete and squad.remaining_for(player.position) > 0
@@ -213,6 +208,7 @@ class AuctionEngine:
                 bids[bidder.buyer_id] = 0
                 continue
 
+            active.append(bidder.buyer_id)
             try:
                 bid = bidder.bid(player, squad)
             except Exception as exc:
@@ -233,7 +229,12 @@ class AuctionEngine:
                 continue
 
             bids[bidder.buyer_id] = bid
-        return bids
+        return bids, active
+
+    def _notify(self, result: AuctionResult, active_ids: list[str]) -> None:
+        for bidder in self.bidders:
+            if bidder.buyer_id in active_ids:
+                bidder.observe(result, self.state.squads[bidder.buyer_id])
 
     def _canonical_player(self, player: Player) -> Player:
         for canonical in self.state.players:
@@ -248,7 +249,15 @@ class AuctionEngine:
             raise ValueError(f"Player {player.id} is not available")
 
         self.state.auction_count += 1
-        bids = self._collect_bids(player)
+        logger.info(
+            "Asta #{}: {} ({}, {}, quotazione {})",
+            self.state.auction_count,
+            player.name,
+            player.position.value,
+            player.team,
+            player.list_price,
+        )
+        bids, active_ids = self._collect_bids(player)
         max_bid = max(bids.values(), default=0)
         positive_winners = [buyer_id for buyer_id, bid in bids.items() if bid == max_bid and bid > 0]
 
@@ -260,9 +269,7 @@ class AuctionEngine:
                 status=AuctionStatus.UNSOLD_NO_BID,
             )
             logger.warning("{}: no positive bids", player.name)
-            return result
-
-        if len(positive_winners) != 1:
+        elif len(positive_winners) != 1:
             player.status = PlayerStatus.UNSOLD
             result = AuctionResult(
                 player=player.model_copy(deep=True),
@@ -270,30 +277,31 @@ class AuctionEngine:
                 status=AuctionStatus.UNSOLD_TIE,
             )
             logger.warning("{}: tied highest bid at {} credits", player.name, max_bid)
-            return result
-
-        winner_id = positive_winners[0]
-        self.state.squads[winner_id].add_player(player, max_bid)
-        transaction = Transaction(
-            player=player.model_copy(deep=True),
-            buyer_id=winner_id,
-            price=max_bid,
-            all_bids=bids,
-        )
-        self.state.transactions.append(transaction)
-        logger.info(
-            "Sold {} to {} for {} credits",
-            player.name,
-            self.state.squads[winner_id].name,
-            max_bid,
-        )
-        return AuctionResult(
-            player=player.model_copy(deep=True),
-            winner_id=winner_id,
-            price=max_bid,
-            all_bids=bids,
-            status=AuctionStatus.SOLD,
-        )
+        else:
+            winner_id = positive_winners[0]
+            self.state.squads[winner_id].add_player(player, max_bid)
+            transaction = Transaction(
+                player=player.model_copy(deep=True),
+                buyer_id=winner_id,
+                price=max_bid,
+                all_bids=bids,
+            )
+            self.state.transactions.append(transaction)
+            logger.info(
+                "Sold {} to {} for {} credits",
+                player.name,
+                self.state.squads[winner_id].name,
+                max_bid,
+            )
+            result = AuctionResult(
+                player=player.model_copy(deep=True),
+                winner_id=winner_id,
+                price=max_bid,
+                all_bids=bids,
+                status=AuctionStatus.SOLD,
+            )
+        self._notify(result, active_ids)
+        return result
 
     def _finish_run(self, ended_at: datetime) -> None:
         self.state.ended_at = ended_at
@@ -336,6 +344,10 @@ class AuctionEngine:
             bid_issues=[issue.model_copy(deep=True) for issue in self.bid_issues],
         )
 
+    def partial_report(self) -> SimulationReport:
+        """Project the current state into a report even when the run is incomplete."""
+        return self._report()
+
     def build_checkpoint(
         self,
         simulation: SimulationSnapshot,
@@ -348,23 +360,9 @@ class AuctionEngine:
             raise ValueError("Only pool exhaustion can create a checkpoint")
 
         report = self._report()
-        return AuctionCheckpoint(
-            schema_version=1,
+        fields = report.model_dump()
+        fields.update(
             document_type="auction_checkpoint",
-            timestamp_start=report.timestamp_start,
-            timestamp_end=report.timestamp_end,
-            duration_seconds=report.duration_seconds,
-            last_run_started_at=report.last_run_started_at,
-            last_run_ended_at=report.last_run_ended_at,
-            last_run_duration_seconds=report.last_run_duration_seconds,
-            run_number=report.run_number,
-            squads=report.squads,
-            transactions=report.transactions,
-            unsold_players=report.unsold_players,
-            total_players=report.total_players,
-            players_sold=report.players_sold,
-            players_unsold=report.players_unsold,
-            bid_issues=report.bid_issues,
             players=[player.model_copy(deep=True) for player in self.state.players],
             simulation=simulation,
             buyers=[buyer.model_copy(deep=True) for buyer in buyers],
@@ -375,14 +373,19 @@ class AuctionEngine:
             },
             error_code="pool_exhausted",
             error=str(error),
-            resume={
-                "incomplete_buyer_ids": list(missing_roles),
-                "pool": "unsold_players",
-            },
+            resume={"incomplete_buyer_ids": list(missing_roles)},
         )
+        return AuctionCheckpoint(**fields)
 
-    def run(self) -> SimulationReport:
-        """Run until all squads are complete or the pool is exhausted."""
+    def run(
+        self,
+        after_lot: Callable[[AuctionResult], None] | None = None,
+    ) -> SimulationReport:
+        """Run until all squads are complete or the pool is exhausted.
+
+        `after_lot`, when given, is called with each resolved lot right after
+        it is auctioned (the CLI uses it for step-by-step mode).
+        """
         run_started_at = datetime.now(timezone.utc)
         if self.state.started_at is None:
             self.state.started_at = run_started_at
@@ -406,4 +409,6 @@ class AuctionEngine:
             if player is None:
                 self._finish_run(datetime.now(timezone.utc))
                 raise AuctionIncompleteError(incomplete)
-            self.auction_player(player)
+            result = self.auction_player(player)
+            if after_lot is not None:
+                after_lot(result)

@@ -62,34 +62,6 @@ def setup_logger(
     logger.info(f"Logger inizializzato - Livello: {log_level}")
 
 
-def get_logger(name: str):
-    """
-    Args:
-        name: name module/component
-        
-    Returns:
-        Logger instance
-    """
-    return logger.bind(name=name)
-
-
-# Context manager logging temporary
-class temporary_log_level:
-    """Context manager per cambiare temporaneamente il livello di log"""
-    
-    def __init__(self, level: str):
-        self.level = level
-        self.handler_id = None
-    
-    def __enter__(self):
-        self.handler_id = logger.add(sys.stdout, level=self.level)
-        return logger
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.handler_id is not None:
-            logger.remove(self.handler_id)
-
-
 if __name__ == "__main__":
     # Test logging
     setup_logger(log_level="DEBUG", log_to_file=True)

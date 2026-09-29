@@ -1,18 +1,31 @@
-"""Command-line entry point for a deterministic auction simulation."""
+"""Command-line entry point for an auction simulation."""
 
 from __future__ import annotations
 
 import argparse
-import random
+import os
+import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
 from loguru import logger
 
-from agents.buyer_agent import DeterministicBidder, RandomBidder
+from agents.coach_agent import CoachAgent
+from agents.coach_loader import load_buyer_configs
+from agents.coach_prompt import render_system_prompt
+from agents.llm_client import LlmClient
+from agents.trace import TraceLogger
+from benchmark.runner import run_benchmark
 from core.auction_manager import AuctionEngine, AuctionIncompleteError
-from core.models import BidderSnapshot, SimulationSnapshot
+from core.models import AuctionResult, BidderSnapshot, SimulationSnapshot
+from utils.config_loader import (
+    as_file_path,
+    load_config,
+    validate_global_llm,
+    validate_llm_buyer,
+)
 from utils.excel_handler import ExcelHandler
 from utils.json_store import JsonStore
 from utils.logger import setup_logger
@@ -20,82 +33,215 @@ from utils.logger import setup_logger
 DEFAULT_CONFIG = Path("configs/default.yaml")
 
 
-def _load_config(path: Path) -> dict[str, Any]:
+def _load_dotenv(path: Path = Path(".env")) -> None:
+    """Load KEY=VALUE pairs from path; existing environment variables win."""
     if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-    with path.open(encoding="utf-8") as stream:
-        config = yaml.safe_load(stream) or {}
-    if not isinstance(config, dict):
-        raise ValueError("Config root must be a mapping")
-    _validate_config(config)
-    return config
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            os.environ.setdefault(key, value.strip().strip('"').strip("'"))
 
 
-def _validate_config(config: dict[str, Any]) -> None:
-    simulation = config.get("simulation", {})
-    paths = config.get("paths", {})
-    if not isinstance(simulation, dict):
-        raise ValueError("'simulation' must be a mapping")
-    if simulation.get("seed") is None:
-        raise ValueError("'simulation.seed' is required")
-    if not isinstance(paths, dict) or not paths.get("players"):
-        raise ValueError("'paths.players' is required")
+def _trace_run_dir(logs_dir: str | Path | None) -> Path:
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return Path(logs_dir or "logs") / "traces" / run_id
 
 
-def _as_file_path(value: str | Path | None, default: Path, filename: str) -> Path:
-    if value is None:
-        return default
-    path = Path(value)
-    return path if path.suffix.lower() == ".json" else path / filename
+SEARCH_PROVIDER_DEFAULTS = {
+    "anthropic": {"base_url": "https://api.anthropic.com"},
+    "brave": {"base_url": "https://api.search.brave.com/res/v1/web/search"},
+}
 
 
-def _build_bidders(configs: list[dict[str, Any]], seed: int | None):
+def _make_llm_client(llm_config: dict[str, Any]) -> LlmClient:
+    api_key_env = str(llm_config.get("api_key_env", ""))
+    api_key = os.environ.get(api_key_env)
+    if not api_key:
+        raise ValueError(
+            f"Environment variable '{api_key_env}' (llm.api_key_env) is not set; "
+            "set it before running an auction with LLM bidders"
+        )
+    search_config = llm_config.get("search")
+    if search_config is None and llm_config.get("brave") is not None:
+        search_config = {"provider": "brave", **llm_config["brave"]}
+    search = None
+    if search_config is not None:
+        provider = str(search_config.get("provider", ""))
+        defaults = SEARCH_PROVIDER_DEFAULTS.get(provider, {})
+        search = {
+            "provider": provider,
+            "base_url": str(
+                search_config.get("base_url")
+                or defaults.get("base_url")
+                or llm_config.get("base_url")
+                or ""
+            ),
+            "api_key": os.environ.get(
+                str(
+                    search_config.get("api_key_env")
+                    or llm_config.get("api_key_env")
+                    or ""
+                ),
+                "",
+            ),
+        }
+        for key in ("model", "max_output_tokens", "headers"):
+            if search_config.get(key) is not None:
+                search[key] = search_config[key]
+    headers = {
+        str(name): str(value)
+        for name, value in (llm_config.get("headers") or {}).items()
+    }
+    headers.setdefault(
+        "x-opencode-session",
+        "fantasyleague-"
+        + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S"),
+    )
+    return LlmClient(
+        base_url=str(llm_config["base_url"]),
+        api_key=api_key,
+        search=search,
+        timeout_seconds=int(llm_config.get("timeout_seconds", 60)),
+        extra_headers=headers,
+    )
+
+
+def _build_bidders(
+    configs: list[dict[str, Any]],
+    llm_config: dict[str, Any] | None = None,
+    run_dir: Path | None = None,
+    budget: int = 500,
+):
     if not configs:
         raise ValueError("At least one buyer must be configured")
+    if run_dir is None:
+        raise ValueError("A trace run_dir is required for LLM bidders")
 
+    # One shared client for all LLM bidders.
+    llm_client = _make_llm_client(llm_config or {})
     bidders = []
-    for index, config in enumerate(configs):
+    for config in configs:
         buyer_id = str(config.get("id", "")).strip()
         name = str(config.get("name", "")).strip()
-        strategy = str(config.get("strategy", "deterministic")).lower()
-        if strategy == "deterministic":
-            bidders.append(
-                DeterministicBidder(
-                    buyer_id,
-                    name,
-                    priority=int(config.get("priority", index)),
-                )
+        merged = {**(llm_config or {}), **(config.get("llm") or {})}
+        bidders.append(
+            CoachAgent(
+                buyer_id,
+                name,
+                client=llm_client,
+                tracer=TraceLogger(run_dir, buyer_id),
+                model=str(merged["model"]),
+                temperature=float(merged.get("temperature", 0.7)),
+                system_prompt=render_system_prompt(
+                    budget=budget,
+                    profile=config.get("profile"),
+                    role=merged.get("role"),
+                    personality=merged.get("personality"),
+                    spending_profile=merged.get("spending_profile"),
+                    target_players=merged.get("target_players"),
+                    override=merged.get("system_prompt"),
+                ),
+                max_tool_iterations=int(merged.get("max_tool_iterations", 3)),
+                max_bid_retries=int(merged.get("max_bid_retries", 2)),
+                tools=tuple(merged.get("tools", CoachAgent.DEFAULT_TOOLS)),
             )
-        elif strategy == "random":
-            bidder_seed = None if seed is None else seed + index
-            bidders.append(RandomBidder(buyer_id, name, random.Random(bidder_seed)))
-        else:
-            raise ValueError(f"Unknown bidder strategy: {strategy}")
+        )
     return bidders
 
 
-def _buyer_snapshots(configs: list[dict[str, Any]]) -> list[BidderSnapshot]:
-    return [
-        BidderSnapshot(
-            id=str(config.get("id", "")).strip(),
-            name=str(config.get("name", "")).strip(),
-            strategy=str(config.get("strategy", "deterministic")).lower(),
-            priority=int(config.get("priority", index)),
-        )
-        for index, config in enumerate(configs)
-    ]
+def _sidecar_path(checkpoint_path: Path) -> Path:
+    return checkpoint_path.with_suffix(".llm.yaml")
 
 
-def _snapshot_configs(snapshots: list[BidderSnapshot]) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": snapshot.id,
-            "name": snapshot.name,
-            "strategy": snapshot.strategy,
-            "priority": snapshot.priority,
+def _write_llm_sidecar(
+    checkpoint_path: Path,
+    buyer_configs: list[dict[str, Any]],
+    llm_config: dict[str, Any],
+    budget: int,
+) -> Path:
+    """Write the LLM sidecar next to a checkpoint."""
+    resolved: dict[str, dict[str, Any]] = {}
+    for buyer in buyer_configs:
+        buyer_llm = buyer.get("llm") or {}
+        merged = {**(llm_config or {}), **buyer_llm}
+        # Per-buyer blocks with the fully resolved prompt; api_key_env is
+        # a variable name, never the key itself.
+        resolved[str(buyer["id"])] = {
+            "llm": {
+                **buyer_llm,
+                "system_prompt": render_system_prompt(
+                    budget=budget,
+                    profile=buyer.get("profile"),
+                    role=merged.get("role"),
+                    personality=merged.get("personality"),
+                    spending_profile=merged.get("spending_profile"),
+                    target_players=merged.get("target_players"),
+                    override=merged.get("system_prompt"),
+                ),
+            }
         }
-        for snapshot in snapshots
-    ]
+    payload = {
+        "schema_version": 1,
+        "llm": llm_config,
+        "buyers": resolved,
+    }
+    path = _sidecar_path(checkpoint_path)
+    path.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _load_llm_sidecar(checkpoint_path: Path) -> dict[str, Any]:
+    path = _sidecar_path(checkpoint_path)
+    if not path.exists():
+        raise ValueError(
+            f"LLM sidecar missing: {path}; checkpoints cannot be resumed "
+            "without it"
+        )
+    with path.open(encoding="utf-8") as stream:
+        sidecar = yaml.safe_load(stream) or {}
+    if not isinstance(sidecar, dict):
+        raise ValueError(f"Invalid LLM sidecar {path}: root must be a mapping")
+    if sidecar.get("schema_version") != 1:
+        raise ValueError(f"Invalid LLM sidecar {path}: schema_version must be 1")
+    buyers = sidecar.get("buyers") or {}
+    if not isinstance(buyers, dict):
+        raise ValueError(f"Invalid LLM sidecar {path}: 'buyers' must be a mapping")
+    try:
+        validate_global_llm(sidecar.get("llm"))
+        for buyer_id, entry in buyers.items():
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"'buyers.{buyer_id}' must be a mapping"
+                )
+            validate_llm_buyer(entry.get("llm"), str(buyer_id))
+    except ValueError as exc:
+        raise ValueError(f"Invalid LLM sidecar {path}: {exc}") from exc
+    return sidecar
+
+
+def _make_step_pause(engine: AuctionEngine):
+    """Return the after-lot callback used by the `--step` mode."""
+
+    def pause(_result: AuctionResult) -> None:
+        squads = " | ".join(
+            f"{squad.name}: {len(squad.players)}/25, "
+            f"{squad.budget_remaining} credits"
+            for squad in engine.state.squads.values()
+        )
+        print(f"[step] {squads}")
+        input("Press Enter to auction the next player (Ctrl+C to stop)... ")
+
+    return pause
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -106,15 +252,36 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--seed", type=int)
+    parser.add_argument(
+        "--step",
+        action="store_true",
+        help="Auction one player at a time, pausing for Enter between lots",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    benchmark_parser = subparsers.add_parser(
+        "benchmark",
+        help="Run multiple auctions and aggregate per-agent metrics",
+    )
+    # SUPPRESS keeps the parent values when these flags appear before the
+    # subcommand instead of overwriting them with subparser defaults.
+    benchmark_parser.add_argument("--config", type=Path, default=argparse.SUPPRESS)
+    benchmark_parser.add_argument("--runs", type=int, default=5)
+    benchmark_parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
+    benchmark_parser.add_argument("--output", type=Path, default=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_dotenv()
     args = _parser().parse_args(argv)
+    if args.command == "benchmark":
+        return run_benchmark(args, _build_bidders)
     engine: AuctionEngine | None = None
     simulation_snapshot: SimulationSnapshot | None = None
     buyer_snapshots: list[BidderSnapshot] | None = None
     checkpoint_path: Path | None = None
+    llm_config: dict[str, Any] | None = None
+    buyer_configs: list[dict[str, Any]] = []
     store = JsonStore()
 
     try:
@@ -125,23 +292,38 @@ def main(argv: list[str] | None = None) -> int:
             buyer_snapshots = [
                 buyer.model_copy(deep=True) for buyer in source.buyers
             ]
+            buyer_configs = [
+                {
+                    "id": snapshot.id,
+                    "name": snapshot.name,
+                }
+                for snapshot in buyer_snapshots
+            ]
+            sidecar = _load_llm_sidecar(args.resume)
+            llm_config = sidecar["llm"]
+            per_buyer = sidecar.get("buyers") or {}
+            for config in buyer_configs:
+                entry = per_buyer.get(config["id"], {})
+                config["llm"] = entry.get("llm") or {}
             bidders = _build_bidders(
-                _snapshot_configs(buyer_snapshots),
-                source.simulation.seed,
+                buyer_configs,
+                llm_config=llm_config,
+                run_dir=_trace_run_dir(None),
+                budget=source.simulation.budget,
             )
             engine = AuctionEngine.from_checkpoint(source, bidders)
-            output_path = _as_file_path(
+            output_path = as_file_path(
                 args.output,
                 Path("data/results/report.json"),
                 "report.json",
             )
-            checkpoint_path = _as_file_path(
+            checkpoint_path = as_file_path(
                 args.checkpoint,
                 args.resume,
                 "checkpoint.json",
             )
         else:
-            config = _load_config(args.config)
+            config = load_config(args.config)
             simulation = config.get("simulation", {})
             paths = config.get("paths", {})
             logging_config = config.get("logging", {})
@@ -152,28 +334,49 @@ def main(argv: list[str] | None = None) -> int:
             )
 
             budget = int(simulation.get("budget", 500))
-            seed = args.seed if args.seed is not None else simulation["seed"]
+            seed = args.seed if args.seed is not None else simulation.get("seed")
+            if seed is None:
+                seed = secrets.randbelow(2**31)
+                logger.info(
+                    "Seed generato: {} (riproduci con --seed {})", seed, seed
+                )
             players_path = args.players or Path(paths["players"])
-            output_path = _as_file_path(
+            output_path = as_file_path(
                 args.output or paths.get("output"),
                 Path("data/results/report.json"),
                 "report.json",
             )
-            checkpoint_path = _as_file_path(
+            checkpoint_path = as_file_path(
                 args.checkpoint or paths.get("checkpoint"),
                 Path("data/checkpoints/checkpoint.json"),
                 "checkpoint.json",
             )
 
             players = ExcelHandler(players_path).load_players()
-            buyer_configs = list(config.get("buyers", []))
-            bidders = _build_bidders(buyer_configs, seed)
+            buyer_configs = load_buyer_configs(config)
+            llm_config = config.get("llm")
+            bidders = _build_bidders(
+                buyer_configs,
+                llm_config=llm_config,
+                run_dir=_trace_run_dir(paths.get("logs")),
+                budget=budget,
+            )
             simulation_snapshot = SimulationSnapshot(budget=budget, seed=seed)
-            buyer_snapshots = _buyer_snapshots(buyer_configs)
+            buyer_snapshots = [
+                BidderSnapshot(
+                    id=str(config.get("id", "")).strip(),
+                    name=str(config.get("name", "")).strip(),
+                    strategy="llm",
+                    priority=index,
+                )
+                for index, config in enumerate(buyer_configs)
+            ]
             engine = AuctionEngine(players, bidders, budget=budget, seed=seed)
 
-        report = engine.run()
-        saved = store.save_report(report, output_path)
+        report = engine.run(
+            after_lot=_make_step_pause(engine) if args.step else None
+        )
+        saved = store.save_document(report, output_path)
         logger.success("Report saved to {}", saved)
         return 0
     except AuctionIncompleteError as exc:
@@ -186,12 +389,29 @@ def main(argv: list[str] | None = None) -> int:
             exc,
             exc.missing_roles,
         )
-        saved = store.save_checkpoint(
+        saved = store.save_document(
             checkpoint,
             checkpoint_path or Path("data/checkpoints/checkpoint.json"),
         )
+        try:
+            sidecar_path = _write_llm_sidecar(
+                saved,
+                buyer_configs,
+                llm_config,
+                simulation_snapshot.budget,
+            )
+            logger.info("LLM sidecar saved to {}", sidecar_path)
+        except OSError as write_exc:
+            logger.error(
+                "Failed to write LLM sidecar next to {}: {}",
+                saved,
+                write_exc,
+            )
         logger.error("{}; checkpoint saved to {}", exc, saved)
         return 1
+    except KeyboardInterrupt:
+        logger.warning("Auction interrupted (Ctrl+C)")
+        return 130
     except Exception as exc:
         logger.error("Auction failed: {}", exc)
         return 1

@@ -14,7 +14,7 @@ def _write_payload(tmp_path, payload: dict) -> None:
 
 
 def test_report_save_writes_versioned_json(tmp_path):
-    path = JsonStore().save_report(make_report(), tmp_path / "report.json")
+    path = JsonStore().save_document(make_report(), tmp_path / "report.json")
 
     data = json.loads(path.read_text(encoding="utf-8"))
 
@@ -25,7 +25,7 @@ def test_report_save_writes_versioned_json(tmp_path):
 
 def test_checkpoint_round_trip_preserves_resume_data(tmp_path):
     source = make_checkpoint()
-    path = JsonStore().save_checkpoint(source, tmp_path / "checkpoint.json")
+    path = JsonStore().save_document(source, tmp_path / "checkpoint.json")
 
     loaded = JsonStore().load_checkpoint(path)
 
@@ -65,7 +65,7 @@ def test_load_checkpoint_rejects_wrong_version_type_or_error(
     value,
     message,
 ):
-    payload = make_checkpoint().to_dict()
+    payload = make_checkpoint().model_dump(mode="json")
     payload[field] = value
     _write_payload(tmp_path, payload)
 
@@ -74,7 +74,7 @@ def test_load_checkpoint_rejects_wrong_version_type_or_error(
 
 
 def test_load_checkpoint_rejects_missing_embedded_configuration(tmp_path):
-    payload = make_checkpoint().to_dict()
+    payload = make_checkpoint().model_dump(mode="json")
     del payload["simulation"]
     _write_payload(tmp_path, payload)
 
@@ -83,7 +83,7 @@ def test_load_checkpoint_rejects_missing_embedded_configuration(tmp_path):
 
 
 def test_load_checkpoint_rejects_missing_resume_state(tmp_path):
-    payload = make_checkpoint().to_dict()
+    payload = make_checkpoint().model_dump(mode="json")
     del payload["players"]
     _write_payload(tmp_path, payload)
 

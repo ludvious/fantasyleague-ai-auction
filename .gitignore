@@ -57,6 +57,10 @@ cover/
 
 # Django stuff:
 *.log
+
+# LLM agent traces
+/logs/traces/
+
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -207,6 +211,7 @@ marimo/_lsp/
 __marimo__/
 
 /data
+logs/
 
 # Excel
 .xlsx

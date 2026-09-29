@@ -1,6 +1,7 @@
 # fantasyleague-ai-auction
 
-A non-interactive CLI for simulating an Italian fantasy-football auction.
+A CLI for simulating an Italian fantasy-football auction. Runs are unattended
+by default, with an optional interactive step-by-step mode.
 
 
 ## Development disclosure
@@ -42,13 +43,16 @@ The default configuration uses:
 
 - `data/Quotazioni_Fantacalcio_Stagione_2025_26.xlsx` as the player source;
 - a budget of 500 credits;
-- seed `42`;
-- four deterministic bidders;
+- a random player-selection seed per run (generated and logged; pass
+  `--seed N` or set `simulation.seed` to reproduce a run);
+- four CoachAgents discovered from `agents/coach/`;
 - `data/results/report.json` for successful reports;
 - `data/checkpoints/checkpoint.json` for pool-exhaustion checkpoints that can
   be resumed.
 
-The output directories are created automatically when needed.
+The output directories are created automatically when needed. Running an
+auction requires the API key named by `llm.api_key_env` (see
+[CoachAgent](#coachagent-llm-bidders)).
 
 ## CLI options
 
@@ -58,7 +62,14 @@ The output directories are created automatically when needed.
 --output PATH       Override the report path or output directory
 --checkpoint PATH   Override the checkpoint path or directory
 --resume PATH       Resume from a pool-exhaustion checkpoint
---seed INTEGER      Override the configured random seed
+--seed INTEGER      Player-selection seed for a reproducible run (default: random, logged)
+--step              Auction one player at a time, pausing for Enter between lots
+
+benchmark           Run multiple auctions and aggregate per-agent metrics
+  --config PATH     YAML configuration file (default: configs/default.yaml)
+  --runs N          Number of runs (default: 5)
+  --seed INTEGER    Seed of run 1; run i uses seed + i (0-based)
+  --output PATH     Benchmark output directory
 ```
 
 For example:
@@ -71,6 +82,36 @@ venv/bin/python main.py \
   --checkpoint /tmp/auction-checkpoint.json \
   --seed 42
 ```
+
+## Step-by-step simulation
+
+By default the CLI runs the whole auction unattended. Add `--step` to auction
+one player at a time and inspect the state between lots:
+
+```bash
+venv/bin/python main.py --config configs/default.yaml --step
+```
+
+After every resolved lot the engine logs the lot and the CLI prints a per-squad
+status line, then waits for Enter before moving on:
+
+```text
+Asta #12: Lautaro Martínez (A, Inter, quotazione 30)
+Sold Lautaro Martínez to Squadra Alfa for 28 credits
+[step] Squadra Alfa: 7/25, 350 credits | Squadra Beta: 9/25, 210 credits
+Press Enter to auction the next player (Ctrl+C to stop)...
+```
+
+Step mode uses the same engine, configuration, traces, and checkpointing as a
+normal run, so it combines with `--players`, `--output`, `--checkpoint`, and
+`--resume`:
+
+```bash
+venv/bin/python main.py --step --resume /path/to/auction-checkpoint.json
+```
+
+Press Ctrl+C to stop early. On pool exhaustion the run still writes the
+resumable checkpoint and its `checkpoint.llm.yaml` sidecar.
 
 ## Resume from a checkpoint
 
@@ -101,7 +142,124 @@ report destination and defaults to `data/results/report.json`; if the resumed
 round is incomplete, `--checkpoint` selects the replacement checkpoint
 (destination), and without it the input checkpoint is replaced.
 
-The process returns `0` after a complete auction and `1` for pool exhaustion,
+The process returns `0` after a complete auction, `1` for pool exhaustion,
 configuration errors, invalid checkpoint data, file errors, or unexpected
-auction errors. Only pool exhaustion writes a resumable checkpoint; other
-failures do not write one.
+auction errors, and `130` when interrupted with Ctrl+C. Only pool exhaustion
+writes a resumable checkpoint; other exits do not write one.
+
+## CoachAgent (LLM bidders)
+
+`configs/default.yaml` is the example configuration for CoachAgent-driven
+auctions. Coaches are auto-discovered as `coachAgent_*.md` files in the
+directory named by `paths.coaches` (the default points at `agents/coach/`):
+
+```yaml
+paths:
+  coaches: "agents/coach"
+
+llm:
+  base_url: "https://opencode.ai/zen/go/v1"
+  api_key_env: "OPENCODE_API_KEY"
+  model: "deepseek-v4-flash"
+  temperature: 0.7
+  timeout_seconds: 60
+  # Header applicati a tutte le richieste. x-opencode-session è richiesto
+  # da OpenCode Go; se omesso viene generato un default per-run.
+  # headers:
+  #   x-opencode-session: "asta-2026"
+  search:
+    provider: "responses"
+    model: "deepseek-v4-flash"
+    # base_url e api_key_env ereditano da llm sopra; max_output_tokens
+    # default 400. Altri provider:
+    #   anthropic → provider + model (base_url default https://api.anthropic.com)
+    #   brave     → search classica "titolo — url" (provider + api_key_env)
+```
+
+Adding a coach means adding a markdown file, without touching the YAML:
+
+```markdown
+---
+model: "deepseek-v4-flash"
+temperature: 0.7
+spending_profile: {P: 0.08, D: 0.20, C: 0.35, A: 0.37}
+target_players: ["Lautaro Martínez"]
+---
+
+Sei il coach della Squadra Alfa. Stile prudente: ...
+```
+
+The filename derives the coach id (`coachAgent_Alfa.md` → `alfa`); the optional
+front-matter carries technical fields (`model`, `temperature`,
+`max_tool_iterations`, `max_bid_retries`, `tools`, `spending_profile`,
+`target_players`, `system_prompt`) validated with the LLM contract, and the
+markdown body is the agent profile. The system prompt is the shared
+`agents/prompts/system_prompt.md` (regulation rendered from the domain) plus
+the profile; an explicit `system_prompt` replaces it entirely. Inline YAML
+`buyers` also work as CoachAgents, with the same per-buyer `llm` fields
+(optional; omitted fields inherit the global `llm` block).
+
+Each coach loops over OpenAI-compatible `chat` calls with the fixed tool set
+`{search_info, submit_bid}` until it returns a bid that passes
+`Squad.validate_bid`; the domain error goes back to the model for a retry.
+Reasoning is traced and logged at INFO. After every resolved lot the engine
+notifies the polled coaches through `observe`: winners receive the player,
+price, and updated roster, losers a `lost` event, all traced as
+`auction_result`. The API key is read from the environment variable named by
+`llm.api_key_env` (`OPENCODE_API_KEY` in the example); only the variable name
+may appear in configuration files and sidecars. A missing variable is a
+pre-auction error. At startup the CLI automatically loads a gitignored `.env`
+file from the working directory (real shell variables win); copy
+`.env.example` and fill in the key instead of exporting it on every run.
+
+`search_info` is configured through the optional `llm.search` block, which
+supports the `responses`, `anthropic`, and `brave` providers. The native
+providers (`responses`, `anthropic`) return a summary of the news with cited
+sources (`Fonti:`); `brave` keeps the classic `titolo — url` listing and
+remains available as the legacy provider (the old `llm.brave` block is still
+accepted when `llm.search` is absent). The search key is read from the
+environment variable named by `llm.search.api_key_env` (inherited from
+`llm.api_key_env` when omitted); a missing or placeholder key, or a failed
+request, degrades to the tool message `search non disponibile`. Like the LLM
+key, the search key never appears in configuration files or sidecars, only
+the variable name.
+
+Every coach writes one JSON object per event to
+`logs/traces/<run_dir>/<buyer_id>.jsonl`; the `<run_dir>` is chosen by the
+caller, never by the engine.
+
+### Resuming LLM checkpoints
+
+When a pool-exhaustion checkpoint is written, the CLI writes an auto-generated
+`checkpoint.llm.yaml` sidecar next to it (`schema_version: 1`)
+with the global `llm` block and one per-buyer `llm` block carrying the fully
+resolved `system_prompt`. Resuming a checkpoint requires the sidecar; a
+missing or invalid sidecar exits `1` before the auction starts. With
+`--resume`, the checkpoint plus sidecar are the only inputs: `--config` (and
+the original `coachAgent_*.md` files) stay unread. A second pool exhaustion
+propagates the sidecar next to the new checkpoint.
+
+## Benchmark
+
+```bash
+venv/bin/python main.py benchmark \
+  --config configs/default.yaml \
+  --runs 2 \
+  --seed 42 \
+  --output data/benchmarks/2026-08-18/
+```
+
+Run `i` uses seed `seed + i` (0-based), where `seed` comes from `--seed`, the
+config, or a generated/logged base seed, and a fresh `AuctionEngine` with
+deep-copied players. The output layout is:
+
+```text
+DIR/run_NNN/report.json           per-run report
+DIR/run_NNN/traces/<buyer>.jsonl  per-run per-agent traces
+DIR/metrics.json                  run records + aggregates
+DIR/metrics.csv                   one row per buyer per run
+```
+
+Pool exhaustion inside a run saves the partial report and records
+`completed: false`; the benchmark continues with the next run and never
+resumes. Without `--output`, the root is `data/benchmarks/<timestamp>/`.

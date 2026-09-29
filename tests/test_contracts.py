@@ -16,25 +16,22 @@ def test_checkpoint_contains_autonomous_configuration():
 
     assert checkpoint.document_type == "auction_checkpoint"
     assert checkpoint.simulation.budget == 500
-    assert checkpoint.buyers[0].strategy == "deterministic"
+    assert checkpoint.buyers[0].strategy == "llm"
     assert checkpoint.error_code == "pool_exhausted"
 
 
 def test_checkpoint_serializes_enums_and_datetimes_as_json_values():
-    data = make_checkpoint().to_dict()
+    data = make_checkpoint().model_dump(mode="json")
 
     timestamp = data["timestamp_start"].replace("Z", "+00:00")
     assert datetime.fromisoformat(timestamp).tzinfo == timezone.utc
     assert data["players"][0]["status"] == "invenduto"
-    assert data["resume"] == {
-        "incomplete_buyer_ids": ["buyer_1"],
-        "pool": "unsold_players",
-    }
+    assert data["resume"] == {"incomplete_buyer_ids": ["buyer_1"]}
 
 
 def test_report_keeps_json_and_aggregate_helpers():
     report = make_report()
 
-    assert report.to_dict()["document_type"] == "auction_report"
+    assert report.model_dump(mode="json")["document_type"] == "auction_report"
     assert report.total_spent == 0
     assert report.max_price == 0
