@@ -262,10 +262,12 @@ def _parser() -> argparse.ArgumentParser:
         "benchmark",
         help="Run multiple auctions and aggregate per-agent metrics",
     )
-    benchmark_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    # SUPPRESS keeps the parent values when these flags appear before the
+    # subcommand instead of overwriting them with subparser defaults.
+    benchmark_parser.add_argument("--config", type=Path, default=argparse.SUPPRESS)
     benchmark_parser.add_argument("--runs", type=int, default=5)
-    benchmark_parser.add_argument("--seed", type=int)
-    benchmark_parser.add_argument("--output", type=Path)
+    benchmark_parser.add_argument("--seed", type=int, default=argparse.SUPPRESS)
+    benchmark_parser.add_argument("--output", type=Path, default=argparse.SUPPRESS)
     return parser
 
 
